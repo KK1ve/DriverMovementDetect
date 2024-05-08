@@ -431,6 +431,11 @@ void visualize(const char* title, const ncnn::Mat& m)
 }
 
 
+float euclidean_distance(float x1, float x2, float y1, float y2) {
+    return sqrt((pow(abs(x1 - x2), 2)) + (pow(abs(y1 - y2), 2)));
+}
+
+
 int Yolo_Face::detect(const cv::Mat& bgr, std::vector<Object_Face>& objects, float prob_threshold, float nms_threshold) {
     int img_w = bgr.cols;
     int img_h = bgr.rows;
@@ -571,6 +576,62 @@ int Yolo_Face::draw(cv::Mat& rgb, std::vector<Object_Face>& objects) {
         cv::rectangle(res, obj.rect, { 0, 0, 255 }, 2);
         char text[256];
         sprintf(text, "%s %.1f%%", class_names[obj.label].c_str(), obj.prob * 100);
+        if (obj.label == 0) {
+            sprintf(text, "%s pose: %s", text, obj.pose_name);
+        }
+        else {
+            char face_text[256];
+            sprintf(face_text, "infos: ");
+            std::vector<int> right_eyes = { 0, 2, 4, 6, 8, 10};
+            std::vector<int> left_eyes = { 1, 3, 5, 7, 9, 11};
+            std::vector<int> mouth = { 12, 14, 15, 13, 17, 16};
+
+            float EAR = (euclidean_distance(obj.kps[right_eyes[1] * 3 + 0], 
+                obj.kps[right_eyes[5] * 3 + 0], obj.kps[right_eyes[1] * 3 + 1], 
+                obj.kps[right_eyes[5] * 3 + 1]) + euclidean_distance(obj.kps[right_eyes[2] * 3 + 0],
+                    obj.kps[right_eyes[4] * 3 + 0], obj.kps[right_eyes[2] * 3 + 1],
+                    obj.kps[right_eyes[4] * 3 + 1])) / (2 * euclidean_distance(obj.kps[right_eyes[0] * 3 + 0],
+                        obj.kps[right_eyes[3] * 3 + 0], obj.kps[right_eyes[0] * 3 + 1],
+                        obj.kps[right_eyes[3] * 3 + 1]));
+
+            sprintf(face_text, "%s RIGHT: %.2f", face_text, EAR);
+
+
+            EAR = (euclidean_distance(obj.kps[left_eyes[1] * 3 + 0],
+                obj.kps[left_eyes[5] * 3 + 0], obj.kps[left_eyes[1] * 3 + 1],
+                obj.kps[left_eyes[5] * 3 + 1]) + euclidean_distance(obj.kps[left_eyes[2] * 3 + 0],
+                    obj.kps[left_eyes[4] * 3 + 0], obj.kps[left_eyes[2] * 3 + 1],
+                    obj.kps[left_eyes[4] * 3 + 1])) / (2 * euclidean_distance(obj.kps[left_eyes[0] * 3 + 0],
+                        obj.kps[left_eyes[3] * 3 + 0], obj.kps[left_eyes[0] * 3 + 1],
+                        obj.kps[left_eyes[3] * 3 + 1]));
+
+            sprintf(face_text, "%s LEFT: %.2f", face_text, EAR);
+
+
+            EAR = (euclidean_distance(obj.kps[mouth[1] * 3 + 0],
+                obj.kps[mouth[5] * 3 + 0], obj.kps[mouth[1] * 3 + 1],
+                obj.kps[mouth[5] * 3 + 1]) + euclidean_distance(obj.kps[mouth[2] * 3 + 0],
+                    obj.kps[mouth[4] * 3 + 0], obj.kps[mouth[2] * 3 + 1],
+                    obj.kps[mouth[4] * 3 + 1])) / (2 * euclidean_distance(obj.kps[mouth[0] * 3 + 0],
+                        obj.kps[mouth[3] * 3 + 0], obj.kps[mouth[0] * 3 + 1],
+                        obj.kps[mouth[3] * 3 + 1]));
+
+            sprintf(face_text, "%s MOUTH: %.2f", face_text, EAR);
+
+            int baseLine = 0;
+            cv::Size label_size = cv::getTextSize(face_text, cv::FONT_HERSHEY_SIMPLEX,
+                0.4, 1, &baseLine);
+
+            int x = (int)obj.rect.x;
+            int y = (int)obj.rect.y + 1;
+
+            if (y > res.rows)
+                y = res.rows;
+
+            cv::putText(res, face_text, cv::Point(x, y - label_size.height),
+                cv::FONT_HERSHEY_SIMPLEX, 0.4, { 255, 255, 255 }, 1);
+
+        }
         int baseLine = 0;
         cv::Size label_size = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX,
             0.4, 1, &baseLine);
@@ -586,6 +647,7 @@ int Yolo_Face::draw(cv::Mat& rgb, std::vector<Object_Face>& objects) {
 
         cv::putText(res, text, cv::Point(x, y + label_size.height),
             cv::FONT_HERSHEY_SIMPLEX, 0.4, { 255, 255, 255 }, 1);
+
         std::vector<float>& kps = obj.kps;
         for (int k = 0; k < num_points; k++)
         {

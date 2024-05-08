@@ -9,17 +9,19 @@
 
 #include <opencv2/highgui.hpp>
 #include <net.h>
+#include <cmath>
 
 #include <stdio.h>
 #include <string>
 #include <vector>
-
+#include <string>
 struct Object_Face
 {
     cv::Rect_<float> rect;
     int label;
     float prob;
     std::vector<float> kps;
+    std::string pose_name;
 };
 
 

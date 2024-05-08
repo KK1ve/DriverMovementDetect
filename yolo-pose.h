@@ -23,7 +23,7 @@ class Yolo_pose
 {
 public:
     Yolo_pose();
-    int load(const char* modeltype, int target_size, const float* mean_vals, const float* norm_vals, bool use_gpu = false);
+    int load(const char* modeltype, int target_size, const float* mean_vals, const float* norm_vals, bool use_gpu = true);
 
     int detect(const cv::Mat& rgb, std::vector<Object_pose>& objects, float prob_threshold = 0.25f, float nms_threshold = 0.65f);
 
