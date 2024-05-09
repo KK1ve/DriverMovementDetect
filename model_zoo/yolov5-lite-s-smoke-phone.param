@@ -197,12 +197,12 @@ Swish                    Mul_449                  1 1 625 627
 Concat                   Concat_450               2 1 624 627 628
 Convolution              Conv_451                 1 1 628 629 0=256 1=1 5=1 6=65536
 Swish                    Mul_453                  1 1 629 631
-Convolution              Conv_454                 1 1 591_splitncnn_0 632 0=21 1=1 5=1 6=1344
-Reshape                  Reshape_468              1 1 632 650 0=-1 1=7 2=3
+Convolution              Conv_454                 1 1 591_splitncnn_0 632 0=36 1=1 5=1 6=2304
+Reshape                  Reshape_468              1 1 632 650 0=2704 1=12 2=3
 Permute                  Transpose_469            1 1 650 651 0=1
-Convolution              Conv_470                 1 1 611_splitncnn_0 652 0=21 1=1 5=1 6=2688
-Reshape                  Reshape_484              1 1 652 670 0=-1 1=7 2=3
+Convolution              Conv_470                 1 1 611_splitncnn_0 652 0=36 1=1 5=1 6=4608
+Reshape                  Reshape_484              1 1 652 670 0=676 1=12 2=3
 Permute                  Transpose_485            1 1 670 671 0=1
-Convolution              Conv_486                 1 1 631 672 0=21 1=1 5=1 6=5376
-Reshape                  Reshape_500              1 1 672 690 0=-1 1=7 2=3
+Convolution              Conv_486                 1 1 631 672 0=36 1=1 5=1 6=9216
+Reshape                  Reshape_500              1 1 672 690 0=169 1=12 2=3
 Permute                  Transpose_501            1 1 690 691 0=1

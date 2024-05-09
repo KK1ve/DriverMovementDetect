@@ -150,6 +150,7 @@ static void generate_proposals(
                 //printf("box x0:%f, y0:%f, w:%f, h:%f label:%d\n", temp_object.rect.x, temp_object.rect.y, temp_object.rect.width, temp_object.rect.height ,i);
 
                 objects[i].push_back(temp_object);
+                break;
 
             }
         }
@@ -487,9 +488,7 @@ int Yolo_Face::detect(const cv::Mat& bgr, std::vector<Object_Face>& objects, flo
 
     ncnn::Mat out;
     ex.extract("out0", out);
-    num_points = (out.h - 4 - num_classes) / 3;
         
-
     std::vector<std::vector<Object_Face>> proposals(num_classes, std::vector<Object_Face>(0));
     generate_proposals(out, prob_threshold, num_classes, proposals);
 

@@ -36,11 +36,11 @@ class Yolov8
 public:
     Yolov8();
 
-    int load(const char* modeltype, int target_size, const float* mean_vals, const float* norm_vals, bool use_gpu = false);
+    int load(const char* modeltype, int target_size, const float* mean_vals, const float* norm_vals, std::vector<std::string> class_name, bool use_gpu = true);
 
     //int load(AAssetManager* mgr, const char* modeltype, int target_size, const float* mean_vals, const float* norm_vals, bool use_gpu = false);
 
-    int detect(const cv::Mat& rgb, std::vector<ObjectYolov8>& objects, float prob_threshold = 0.4f, float nms_threshold = 0.5f);
+    int detect(const cv::Mat& rgb, std::vector<ObjectYolov8>& objects, float prob_threshold = 0.7f, float nms_threshold = 0.5f);
 
     int draw(cv::Mat& rgb, const std::vector<ObjectYolov8>& objects);
 
@@ -49,6 +49,7 @@ private:
     int target_size;
     float mean_vals[3];
     float norm_vals[3];
+    std::vector<std::string> class_names;
     ncnn::UnlockedPoolAllocator blob_pool_allocator;
     ncnn::PoolAllocator workspace_pool_allocator;
 };

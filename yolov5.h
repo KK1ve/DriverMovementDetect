@@ -36,7 +36,7 @@ class Yolov5
 public:
     Yolov5();
 
-    int load(const char* modeltype, int target_size, const float* mean_vals, const float* norm_vals, std::vector<std::string>, bool use_gpu = true);
+    int load(const char* modeltype, int target_size, const float* mean_vals, const float* norm_vals, std::vector<std::string> class_name , bool use_gpu = true);
 
     int detect(const cv::Mat& rgb, std::vector<Object>& objects, float prob_threshold = 0.60f, float nms_threshold = 0.60f);
 

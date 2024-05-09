@@ -19,42 +19,55 @@
 
 #include "cpu.h"
 
-static float fast_exp(float x)
+static float sigmod(const float in)
 {
-    union {
-        uint32_t i;
-        float f;
-    } v{};
-    v.i = (1 << 23) * (1.4426950409 * x + 126.93490512f);
-    return v.f;
+    return 1.f / (1.f + expf(-1.f * in));
 }
 
-static float sigmoid(float x)
+static float softmax(
+    const float* src,
+    float* dst,
+    int length
+)
 {
-    return 1.0f / (1.0f + fast_exp(-x));
-}
-static float intersection_area(const ObjectYolov8& a, const ObjectYolov8& b)
-{
-    cv::Rect_<float> inter = a.rect & b.rect;
-    return inter.area();
+    float alpha = -FLT_MAX;
+    for (int c = 0; c < length; c++)
+    {
+        float score = src[c];
+        if (score > alpha)
+        {
+            alpha = score;
+        }
+    }
+
+    float denominator = 0;
+    float dis_sum = 0;
+    for (int i = 0; i < length; ++i)
+    {
+        dst[i] = expf(src[i] - alpha);
+        denominator += dst[i];
+    }
+    for (int i = 0; i < length; ++i)
+    {
+        dst[i] /= denominator;
+        dis_sum += i * dst[i];
+    }
+    return dis_sum;
 }
 
-static void qsort_descent_inplace(std::vector<ObjectYolov8>& faceobjects, int left, int right)
-{
+static void qsort_descent_inplace(std::vector<ObjectYolov8>& faceobjects, int left, int right) {
     int i = left;
     int j = right;
     float p = faceobjects[(left + right) / 2].prob;
 
-    while (i <= j)
-    {
+    while (i <= j) {
         while (faceobjects[i].prob > p)
             i++;
 
         while (faceobjects[j].prob < p)
             j--;
 
-        if (i <= j)
-        {
+        if (i <= j) {
             // swap
             std::swap(faceobjects[i], faceobjects[j]);
 
@@ -63,159 +76,261 @@ static void qsort_descent_inplace(std::vector<ObjectYolov8>& faceobjects, int le
         }
     }
 
-    //     #pragma omp parallel sections
+    //#pragma omp parallel sections
     {
-        //         #pragma omp section
+        //#pragma omp section
         {
             if (left < j) qsort_descent_inplace(faceobjects, left, j);
         }
-        //         #pragma omp section
+        //#pragma omp section
         {
             if (i < right) qsort_descent_inplace(faceobjects, i, right);
         }
     }
 }
 
-static void qsort_descent_inplace(std::vector<ObjectYolov8>& faceobjects)
-{
+static void qsort_descent_inplace(std::vector<ObjectYolov8>& faceobjects) {
     if (faceobjects.empty())
         return;
 
     qsort_descent_inplace(faceobjects, 0, faceobjects.size() - 1);
 }
 
-static void nms_sorted_bboxes(const std::vector<ObjectYolov8>& faceobjects, std::vector<int>& picked, float nms_threshold)
+static void generate_proposals(
+    const ncnn::Mat& feat_blob,
+    const float prob_threshold,
+    const int num_classes,
+    std::vector<std::vector<ObjectYolov8>>& objects
+)
 {
-    picked.clear();
 
-    const int n = faceobjects.size();
 
-    std::vector<float> areas(n);
-    for (int i = 0; i < n; i++)
+    const int num_c = feat_blob.c;  //1
+    const int num_grid_w = feat_blob.w; //8400
+    const int num_grid_h = feat_blob.h; //10
+
+
+
+    const int kps_num = (num_grid_h - 4 - num_classes) / 3;
+    std::vector<std::vector<float>> table(num_grid_w, std::vector<float>(num_grid_h));
+
+
+    for (int q = 0; q < feat_blob.c; q++)
     {
-        areas[i] = faceobjects[i].rect.width * faceobjects[i].rect.height;
-    }
+        const float* ptr = feat_blob.channel(q);
 
-    for (int i = 0; i < n; i++)
-    {
-        const ObjectYolov8& a = faceobjects[i];
-
-        int keep = 1;
-        for (int j = 0; j < (int)picked.size(); j++)
+        for (int y = 0; y < feat_blob.h; y++)
         {
-            const ObjectYolov8& b = faceobjects[picked[j]];
+            for (int x = 0; x < feat_blob.w; x++)
+            {
+                table[x][y] = ptr[x];
+            }
+            ptr += feat_blob.w;
 
-            // intersection over union
-            float inter_area = intersection_area(a, b);
-            float union_area = areas[i] + areas[picked[j]] - inter_area;
-            // float IoU = inter_area / union_area
-            if (inter_area / union_area > nms_threshold)
-                keep = 0;
         }
 
-        if (keep)
-            picked.push_back(i);
     }
-}
-static void generate_grids_and_stride(const int target_w, const int target_h, std::vector<int>& strides, std::vector<GridAndStride>& grid_strides)
-{
-    for (int i = 0; i < (int)strides.size(); i++)
+
+    for (int y = 0; y < num_grid_w; y++)
     {
-        int stride = strides[i];
-        int num_grid_w = target_w / stride;
-        int num_grid_h = target_h / stride;
-        for (int g1 = 0; g1 < num_grid_h; g1++)
-        {
-            for (int g0 = 0; g0 < num_grid_w; g0++)
-            {
-                GridAndStride gs;
-                gs.grid0 = g0;
-                gs.grid1 = g1;
-                gs.stride = stride;
-                grid_strides.push_back(gs);
-            }
-        }
-    }
-}
-static void generate_proposals(std::vector<GridAndStride> grid_strides, const ncnn::Mat& pred, float prob_threshold, std::vector<ObjectYolov8>& objects)
-{
-    const int num_points = grid_strides.size();
-    const int reg_max_1 = 16;
-    const int num_class = pred.w - 4 * reg_max_1;
-
-    for (int i = 0; i < num_points; i++)
-    {
-        const float* scores = pred.row(i) + 4 * reg_max_1;
-
-        // find label with max score
-        int label = -1;
-        float score = -FLT_MAX;
-        for (int k = 0; k < num_class; k++)
-        {
-            float confidence = scores[k];
-            if (confidence > score)
-            {
-                label = k;
-                score = confidence;
-            }
-        }
-        float box_prob = sigmoid(score);
-        if (box_prob >= prob_threshold)
-        {
-            ncnn::Mat bbox_pred(reg_max_1, 4, (void*)pred.row(i));
-            {
-                ncnn::Layer* softmax = ncnn::create_layer("Softmax");
-
-                ncnn::ParamDict pd;
-                pd.set(0, 1); // axis
-                pd.set(1, 1);
-                softmax->load_param(pd);
-
-                ncnn::Option opt;
-                opt.num_threads = 1;
-                opt.use_packing_layout = false;
-
-                softmax->create_pipeline(opt);
-
-                softmax->forward_inplace(bbox_pred, opt);
-
-                softmax->destroy_pipeline(opt);
-
-                delete softmax;
-            }
-
-            float pred_ltrb[4];
-            for (int k = 0; k < 4; k++)
-            {
-                float dis = 0.f;
-                const float* dis_after_sm = bbox_pred.row(k);
-                for (int l = 0; l < reg_max_1; l++)
+        for (int i = 0; i < num_classes; i++) {
+            if (table[y][4 + i] >= prob_threshold) {
+                std::vector<float> kps;
+                for (int k = 0; k < kps_num; k++)
                 {
-                    dis += l * dis_after_sm[l];
+                    float kps_x = table[y][4 + num_classes + k * 3];
+                    float kps_y = table[y][4 + num_classes + k * 3 + 1];
+                    float kps_s = table[y][4 + num_classes + k * 3 + 2];
+
+
+                    kps.push_back(kps_x);
+                    kps.push_back(kps_y);
+                    kps.push_back(kps_s);
                 }
 
-                pred_ltrb[k] = dis * grid_strides[i].stride;
+                ObjectYolov8 temp_object;
+                temp_object.label = i;
+                temp_object.prob = table[y][4 + i];
+                temp_object.rect.x = table[y][0] - table[y][2] / 2;
+                temp_object.rect.y = table[y][1] - table[y][3] / 2;
+                temp_object.rect.width = table[y][2];
+                temp_object.rect.height = table[y][3];
+                printf("box x0:%f, y0:%f, w:%f, h:%f label:%d\n", temp_object.rect.x, temp_object.rect.y, temp_object.rect.width, temp_object.rect.height ,i);
+
+                objects[i].push_back(temp_object);
+
+                break;
+
             }
+        }
+        
 
-            float pb_cx = (grid_strides[i].grid0 + 0.5f) * grid_strides[i].stride;
-            float pb_cy = (grid_strides[i].grid1 + 0.5f) * grid_strides[i].stride;
+    }
+}
 
-            float x0 = pb_cx - pred_ltrb[0];
-            float y0 = pb_cy - pred_ltrb[1];
-            float x1 = pb_cx + pred_ltrb[2];
-            float y1 = pb_cy + pred_ltrb[3];
+static float clamp(
+    float val,
+    float min = 0.f,
+    float max = 1280.f
+)
+{
+    return val > min ? (val < max ? val : max) : min;
+}
+
+
+typedef struct {
+    cv::Rect box;
+    float confidence;
+    int index;
+}BBOX;
+
+static bool cmp_score(BBOX box1, BBOX box2) {
+    return box1.confidence > box2.confidence;
+}
+
+static float get_iou_value(cv::Rect rect1, cv::Rect rect2)
+{
+    int xx1, yy1, xx2, yy2;
+
+    xx1 = std::max(rect1.x, rect2.x);
+    yy1 = std::max(rect1.y, rect2.y);
+    xx2 = std::min(rect1.x + rect1.width - 1, rect2.x + rect2.width - 1);
+    yy2 = std::min(rect1.y + rect1.height - 1, rect2.y + rect2.height - 1);
+
+    int insection_width, insection_height;
+    insection_width = std::max(0, xx2 - xx1 + 1);
+    insection_height = std::max(0, yy2 - yy1 + 1);
+
+    float insection_area, union_area, iou;
+    insection_area = float(insection_width) * insection_height;
+    union_area = float(rect1.width * rect1.height + rect2.width * rect2.height - insection_area);
+    iou = insection_area / union_area;
+    return iou;
+}
+
+
+//类似于cv::dnn::NMSBoxes的接口
+//input:  boxes: 原始检测框集合;
+//input:  confidences：原始检测框对应的置信度值集合
+//input:  confThreshold 和 nmsThreshold 分别是 检测框置信度阈值以及做nms时的阈值
+//output:  indices  经过上面两个阈值过滤后剩下的检测框的index
+static void my_nms_boxes(std::vector<cv::Rect>& boxes, std::vector<float>& confidences, float nmsThreshold,
+    std::vector<int>& indices)
+{
+    BBOX bbox;
+    std::vector<BBOX> bboxes;
+    int i, j;
+    for (i = 0; i < boxes.size(); i++)
+    {
+        //memset((void*)&bbox, 0x00, sizeof(bbox));
+        bbox.box = boxes[i];
+        bbox.confidence = confidences[i];
+        bbox.index = i;
+        bboxes.push_back(bbox);
+    }
+    sort(bboxes.begin(), bboxes.end(), cmp_score);
+
+    while (true) {
+        if (bboxes.size() <= 0) {
+            break;
+        }
+        indices.push_back(bboxes[0].index);
+        for (int i = 0; i < bboxes.size(); i++) {
+            float iou = get_iou_value(bboxes[0].box, bboxes[i].box);
+            if (iou >= nmsThreshold)
+            {
+                bboxes.erase(bboxes.begin() + i);
+                i = i - 1;
+            }
+        }
+
+
+    }
+    //int updated_size = bboxes.size();
+    //for (i = 0; i < updated_size; i++)
+    //{
+    //    indices.push_back(bboxes[i].index);
+    //    for (j = i + 1; j < updated_size; j++)
+    //    {
+    //        float iou = get_iou_value(bboxes[i].box, bboxes[j].box);
+    //        if (iou >= nmsThreshold)
+    //        {
+    //            bboxes.erase(bboxes.begin() + j);
+    //            j = j - 1;
+    //            updated_size = bboxes.size();
+    //        }
+    //    }
+    //}
+}
+
+static float intersection_area(const ObjectYolov8& a, const ObjectYolov8& b)
+{
+    cv::Rect_<float> inter = a.rect & b.rect;
+    return inter.area();
+}
+
+
+static void non_max_suppression(int num_cls, std::vector<std::vector<ObjectYolov8>>& proposals, std::vector<ObjectYolov8>& results,
+    int orin_h, int orin_w, float dh = 0, float dw = 0, float ratio_h = 1.0f,
+    float ratio_w = 1.0f, float conf_thres = 0.25f, float iou_thres = 0.5f)
+
+{
+    results.clear();
+    std::vector<cv::Rect> bboxes;
+    std::vector<float> scores;
+    std::vector<int> labels;
+    std::vector<int> indices;
+    std::vector<std::vector<float>> kpss;
+
+    for (int la = 0; la < num_cls; la++) {
+        if (proposals[la].size() <= 0) {
+            continue;
+        }
+        bboxes.clear();
+        scores.clear();
+        labels.clear();
+        kpss.clear();
+        indices.clear();
+
+        for (int i = 0; i < proposals[la].size(); i++) {
+            bboxes.push_back(proposals[la][i].rect);
+            scores.push_back(proposals[la][i].prob);
+            labels.push_back(proposals[la][i].label);
+        }
+        my_nms_boxes(
+            bboxes,
+            scores,
+            iou_thres,
+            indices
+        );
+        for (int i : indices)
+        {
+
+            auto& bbox = proposals[la][i].rect;
+
+            float& score = proposals[la][i].prob;
+            int& label = proposals[la][i].label;
+
+            float x0 = clamp((bbox.x - dw) / ratio_h, 0.f, orin_w);
+            float y0 = clamp((bbox.y - dh) / ratio_h, 0.f, orin_h);
+            float width = clamp(bbox.width, 0.f, orin_w);
+            float height = clamp(bbox.height, 0.f, orin_w);
+
 
             ObjectYolov8 obj;
             obj.rect.x = x0;
             obj.rect.y = y0;
-            obj.rect.width = x1 - x0;
-            obj.rect.height = y1 - y0;
+            obj.rect.width = width;
+            obj.rect.height = height;
+            obj.prob = score;
             obj.label = label;
-            obj.prob = box_prob;
-
-            objects.push_back(obj);
+            results.push_back(obj);
         }
+
     }
+
+
+
 }
 
 Yolov8::Yolov8()
@@ -225,7 +340,7 @@ Yolov8::Yolov8()
 }
 
 
-int Yolov8::load(const char* modeltype, int _target_size, const float* _mean_vals, const float* _norm_vals, bool use_gpu)
+int Yolov8::load(const char* modeltype, int _target_size, const float* _mean_vals, const float* _norm_vals, std::vector<std::string> _class_name, bool use_gpu)
 {
     yolov8.clear();
     blob_pool_allocator.clear();
@@ -259,7 +374,10 @@ int Yolov8::load(const char* modeltype, int _target_size, const float* _mean_val
     norm_vals[0] = _norm_vals[0];
     norm_vals[1] = _norm_vals[1];
     norm_vals[2] = _norm_vals[2];
-
+    class_names.clear();
+    for (int i = 0; i < _class_name.size(); i++) {
+        class_names.push_back(_class_name[i]);
+    }
     return 0;
 }
 
@@ -288,90 +406,48 @@ int Yolov8::detect(const cv::Mat& rgb, std::vector<ObjectYolov8>& objects, float
     ncnn::Mat in = ncnn::Mat::from_pixels_resize(rgb.data, ncnn::Mat::PIXEL_RGB2BGR, width, height, w, h);
 
     // pad to target_size rectangle
-    int wpad = (w + 31) / 32 * 32 - w;
-    int hpad = (h + 31) / 32 * 32 - h;
+    int wpad = std::abs(w - target_size);
+    int hpad = std::abs(h - target_size);
+
+    int top = hpad / 2;
+    int bottom = hpad - hpad / 2;
+    int left = wpad / 2;
+    int right = wpad - wpad / 2;
     ncnn::Mat in_pad;
-    ncnn::copy_make_border(in, in_pad, hpad / 2, hpad - hpad / 2, wpad / 2, wpad - wpad / 2, ncnn::BORDER_CONSTANT, 0.f);
+    ncnn::copy_make_border(in,
+        in_pad,
+        top,
+        bottom,
+        left,
+        right,
+        ncnn::BORDER_CONSTANT,
+        114.f);
 
     in_pad.substract_mean_normalize(0, norm_vals);
 
     ncnn::Extractor ex = yolov8.create_extractor();
 
-    ex.input("images", in_pad);
+    ex.input("in0", in_pad);
 
-    std::vector<ObjectYolov8> proposals;
 
     ncnn::Mat out;
-    ex.extract("output0", out);
+    ex.extract("out0", out);
 
-    std::vector<int> strides = { 8, 16, 32 }; // might have stride=64
-    std::vector<GridAndStride> grid_strides;
-    generate_grids_and_stride(in_pad.w, in_pad.h, strides, grid_strides);
-    generate_proposals(grid_strides, out, prob_threshold, proposals);
+    const int num_class = class_names.size();
 
-    // sort all proposals by score from highest to lowest
-    qsort_descent_inplace(proposals);
+    std::vector<std::vector<ObjectYolov8>> proposals(num_class, std::vector<ObjectYolov8>(0));
 
-    // apply nms with nms_threshold
-    std::vector<int> picked;
-    nms_sorted_bboxes(proposals, picked, nms_threshold);
+    generate_proposals(out, prob_threshold, num_class, proposals);
 
-    int count = picked.size();
-
-    objects.resize(count);
-    for (int i = 0; i < count; i++)
-    {
-        objects[i] = proposals[picked[i]];
-
-        // adjust offset to original unpadded
-        float x0 = (objects[i].rect.x - (wpad / 2)) / scale;
-        float y0 = (objects[i].rect.y - (hpad / 2)) / scale;
-        float x1 = (objects[i].rect.x + objects[i].rect.width - (wpad / 2)) / scale;
-        float y1 = (objects[i].rect.y + objects[i].rect.height - (hpad / 2)) / scale;
-
-        // clip
-        x0 = std::max(std::min(x0, (float)(width - 1)), 0.f);
-        y0 = std::max(std::min(y0, (float)(height - 1)), 0.f);
-        x1 = std::max(std::min(x1, (float)(width - 1)), 0.f);
-        y1 = std::max(std::min(y1, (float)(height - 1)), 0.f);
-
-        objects[i].rect.x = x0;
-        objects[i].rect.y = y0;
-        objects[i].rect.width = x1 - x0;
-        objects[i].rect.height = y1 - y0;
-    }
-
-    // sort objects by area
-    struct
-    {
-        bool operator()(const ObjectYolov8& a, const ObjectYolov8& b) const
-        {
-            return a.rect.area() > b.rect.area();
-        }
-    } objects_area_greater;
-    std::sort(objects.begin(), objects.end(), objects_area_greater);
+    non_max_suppression(num_class, proposals, objects,
+        height, width, hpad / 2, wpad / 2,
+        scale, scale, prob_threshold, nms_threshold);
 
     return 0;
 }
 
 int Yolov8::draw(cv::Mat& rgb, const std::vector<ObjectYolov8>& objects)
 {
-    //static const char* class_names[] = {
-    //    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat", "traffic light",
-    //    "fire hydrant", "stop sign", "parking meter", "bench", "bird", "cat", "dog", "horse", "sheep", "cow",
-    //    "elephant", "bear", "zebra", "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
-    //    "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove", "skateboard", "surfboard",
-    //    "tennis racket", "bottle", "wine glass", "cup", "fork", "knife", "spoon", "bowl", "banana", "apple",
-    //    "sandwich", "orange", "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
-    //    "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse", "remote", "keyboard", "cell phone",
-    //    "microwave", "oven", "toaster", "sink", "refrigerator", "book", "clock", "vase", "scissors", "teddy bear",
-    //    "hair drier", "toothbrush"
-    //};
-
-    static const char* class_names[] = {
-        "open_mouth", "open_eye", "closed_mouth", "closed_eye"
-    };
-
     static const unsigned char colors[19][3] = {
         { 54,  67, 244},
         { 99,  30, 233},
@@ -411,7 +487,7 @@ int Yolov8::draw(cv::Mat& rgb, const std::vector<ObjectYolov8>& objects)
         cv::rectangle(rgb, obj.rect, cc, 2);
 
         char text[256];
-        sprintf(text, "%s %.1f%%", class_names[obj.label], obj.prob * 100);
+        sprintf(text, "%s %.1f%%", class_names[obj.label].c_str(), obj.prob * 100);
 
         int baseLine = 0;
         cv::Size label_size = cv::getTextSize(text, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);

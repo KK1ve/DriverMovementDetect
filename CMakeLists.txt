@@ -9,7 +9,7 @@ set(OpenCV_DIR D:/CPackage/opencv/build/x64/vc16/lib)
 find_package(OpenCV REQUIRED)
 
 
-add_executable("main" "main.cpp" "yolov5.cpp" "yolov5.h" "yoloface.h" "yoloface.cpp" "pose-classification.h" "pose-classification.cpp")
+add_executable("main" "main.cpp" "yolov8.cpp" "yolov8.h" "yoloface.h" "yoloface.cpp" "pose-classification.h" "pose-classification.cpp")
 
 # 获取当前目录路径
 set(CURRENT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
