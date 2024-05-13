@@ -112,7 +112,6 @@ static void generate_proposals(
 
 
     std::vector<std::vector<float>> table(num_grid_w, std::vector<float>(num_grid_h));
-
     for (int q = 0; q < feat_blob.c; q++)
     {
         const float* ptr = feat_blob.channel(q);
@@ -135,7 +134,6 @@ static void generate_proposals(
         //    printf("%f    ", table[y][z]);
         //}
         //printf("\n");
-
 
         for (int i = 0; i < num_classes; i++) {
 
@@ -368,67 +366,62 @@ int Yolov8::load(const char* modeltype, int _target_size, const float* _mean_val
     return 0;
 }
 
-int Yolov8::detect(const cv::Mat& rgb, std::vector<ObjectYolov8>& objects, float prob_threshold, float nms_threshold)
+int Yolov8::detect(ncnn::Mat in_pad, std::vector<ObjectYolov8>& objects, std::vector<std::variant<float, int>> &result, float prob_threshold, float nms_threshold)
 {
-    int width = rgb.cols;
-    int height = rgb.rows;
+    //int width = rgb.cols;
+    //int height = rgb.rows;
 
-    // pad to multiple of 32
-    int w = width;
-    int h = height;
-    float scale = 1.f;
-    if (w > h)
-    {
-        scale = (float)target_size / w;
-        w = target_size;
-        h = h * scale;
-    }
-    else
-    {
-        scale = (float)target_size / h;
-        h = target_size;
-        w = w * scale;
-    }
+    //// pad to multiple of 32
+    //int w = width;
+    //int h = height;
+    //float scale = 1.f;
+    //if (w > h)
+    //{
+    //    scale = (float)target_size / w;
+    //    w = target_size;
+    //    h = h * scale;
+    //}
+    //else
+    //{
+    //    scale = (float)target_size / h;
+    //    h = target_size;
+    //    w = w * scale;
+    //}
 
-    ncnn::Mat in = ncnn::Mat::from_pixels_resize(rgb.data, ncnn::Mat::PIXEL_BGR2RGB, width, height, w, h);
+    //ncnn::Mat in = ncnn::Mat::from_pixels_resize(rgb.data, ncnn::Mat::PIXEL_BGR2RGB, width, height, w, h);
 
-    // pad to target_size rectangle
-    int wpad = std::abs(w - target_size);
-    int hpad = std::abs(h - target_size);
+    //// pad to target_size rectangle
+    //int wpad = std::abs(w - target_size);
+    //int hpad = std::abs(h - target_size);
 
-    int top = hpad / 2;
-    int bottom = hpad - hpad / 2;
-    int left = wpad / 2;
-    int right = wpad - wpad / 2;
-    ncnn::Mat in_pad;
-    ncnn::copy_make_border(in,
-        in_pad,
-        top,
-        bottom,
-        left,
-        right,
-        ncnn::BORDER_CONSTANT,
-        114.f);
+    //int top = hpad / 2;
+    //int bottom = hpad - hpad / 2;
+    //int left = wpad / 2;
+    //int right = wpad - wpad / 2;
+    //ncnn::Mat in_pad;
+    //ncnn::copy_make_border(in,
+    //    in_pad,
+    //    top,
+    //    bottom,
+    //    left,
+    //    right,
+    //    ncnn::BORDER_CONSTANT,
+    //    114.f);
 
-    in_pad.substract_mean_normalize(0, norm_vals);
+    //in_pad.substract_mean_normalize(0, norm_vals);
 
     ncnn::Extractor ex = yolov8.create_extractor();
-
-
     ex.input("in0", in_pad);
 
 
     ncnn::Mat out;
     ex.extract("out0", out);
-
     const int num_class = class_names.size();
-
     std::vector<std::vector<ObjectYolov8>> proposals(num_class, std::vector<ObjectYolov8>(0));
     generate_proposals(out, prob_threshold, num_class, proposals);
     non_max_suppression(num_class, proposals, objects,
-        height, width, hpad / 2, wpad / 2,
-        scale, scale, prob_threshold, nms_threshold);
-
+        std::get<int>(result[0]), std::get<int>(result[1]), std::get<float>(result[2]), std::get<float>(result[3]),
+        std::get<float>(result[4]), std::get<float>(result[4]), prob_threshold, nms_threshold);
     return 0;
 }
 

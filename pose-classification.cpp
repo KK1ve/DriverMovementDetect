@@ -3,8 +3,7 @@
 //
 
 #include "pose-classification.h"
-#include <opencv2/core/core.hpp>
-#include <opencv2/imgproc/imgproc.hpp>
+
 
 #include <cpu.h>
 
@@ -53,53 +52,51 @@ int Pose_Classification::load(const char* modeltype, const int _img_width, const
 
 int Pose_Classification::detect(std::vector<Object_Pose>& objects) {
 
-
-
+    
     for (int z = 0; z < objects.size(); z++) {
         Object_Pose of = objects[z];
-        if (of.label != 0) continue;
-        const int num_points = 18;
-        size_t elemsize = sizeof(float);
-        float* d_arr = of.kps.data();
-        ncnn::Mat in = ncnn::Mat(1, num_points * 3, d_arr, elemsize);
+        if (of.label == 0) {
+            const int num_points = 18;
+            size_t elemsize = sizeof(float);
+            float* d_arr = of.kps.data();
+            ncnn::Mat in = ncnn::Mat(1, num_points * 3, d_arr, elemsize);
 
-        ncnn::Extractor ex = pose_classification.create_extractor();
+            ncnn::Extractor ex = pose_classification.create_extractor();
 
-        ex.input("input", in);
-        ncnn::Mat out;
-        ex.extract("output", out);
+            ex.input("input", in);
+            ncnn::Mat out;
+            ex.extract("output", out);
 
-        float max = 0;
-        int max_index = 0;
+            float max = 0;
+            int max_index = 0;
 
-        std::vector<float> table(3,0);
+            std::vector<float> table(3, 0);
 
 
-        for (int q = 0; q < out.c; q++)
-        {
-            const float* ptr = out.channel(q);
-
-            for (int y = 0; y < out.h; y++)
+            for (int q = 0; q < out.c; q++)
             {
-                for (int x = 0; x < out.w; x++)
+                const float* ptr = out.channel(q);
+
+                for (int y = 0; y < out.h; y++)
                 {
-                    table[x] = ptr[x];
+                    for (int x = 0; x < out.w; x++)
+                    {
+                        table[x] = ptr[x];
+                    }
+                    ptr += out.w;
+
                 }
-                ptr += out.w;
 
             }
 
-        }
-
-
-        
-        for (int i = 0; i < table.size(); i++) {
-            if (table[i] > max) {
-                max = table[i];
-                max_index = i;
+            for (int i = 0; i < table.size(); i++) {
+                if (table[i] > max) {
+                    max = table[i];
+                    max_index = i;
+                }
             }
+            objects[z].pose_name = pose_name[max_index];
         }
-        objects[z].pose_name = pose_name[max_index];
 
     }
    

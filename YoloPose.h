@@ -6,6 +6,7 @@
 #define Yolo_Pose_H
 
 #include <opencv2/core/core.hpp>
+#include <variant>
 
 #include <opencv2/highgui.hpp>
 #include <net.h>
@@ -31,7 +32,7 @@ public:
     Yolo_Pose();
     int load(const char* modeltype, int target_size, const float* mean_vals, const float* norm_vals, std::vector<std::string> class_name, const bool use_gpu = false);
 
-    int detect(const cv::Mat& rgb, std::vector<Object_Pose>& objects, float prob_threshold = 0.70f, float nms_threshold = 0.65f);
+    int detect(ncnn::Mat rgb, std::vector<Object_Pose>& objects,std::vector<std::variant<float, int>> &result, float prob_threshold = 0.70f, float nms_threshold = 0.65f);
 
     int draw(cv::Mat& rgb, std::vector<Object_Pose>& objects);
 

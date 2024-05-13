@@ -11,7 +11,7 @@ void draw_dps(cv::Mat frame, std::chrono::system_clock::time_point start_time) {
 }
 
 
-ncnn::Mat process_img(cv::Mat rgb, int target_size, const float *norm_vals) {
+std::vector<std::variant<float, int>> process_img(ncnn::Mat& in_pad, cv::Mat rgb, int target_size, const float *norm_vals) {
     int width = rgb.cols;
     int height = rgb.rows;
 
@@ -42,7 +42,6 @@ ncnn::Mat process_img(cv::Mat rgb, int target_size, const float *norm_vals) {
     int bottom = hpad - hpad / 2;
     int left = wpad / 2;
     int right = wpad - wpad / 2;
-    ncnn::Mat in_pad;
     ncnn::copy_make_border(in,
         in_pad,
         top,
@@ -53,7 +52,9 @@ ncnn::Mat process_img(cv::Mat rgb, int target_size, const float *norm_vals) {
         114.f);
 
     in_pad.substract_mean_normalize(0, norm_vals);
-    return in_pad;
+
+    std::vector<std::variant<float, int>> result = { height , width , (float)hpad / 2 , (float)wpad / 2 , scale };
+    return result;
 }
 
 int main(int argc, char** argv)
@@ -85,17 +86,24 @@ int main(int argc, char** argv)
 
 
     static Yolov8* yolov8 = new Yolov8();
+    //std::vector<std::string> class_names = {
+    //    "applauding", "playing_guitar", "holding_an_umbrella", "pouring_liquid", "riding_a_bike", "pushing_a_cart", 
+    //    "feeding_a_horse", "texting_message", "fishing", "playing_violin", "throwing_frisby", "cutting_vegetables", 
+    //    "riding_a_horse", "taking_photos", "watching_TV", "shooting_an_arrow", "reading", "walking_the_dog", 
+    //    "looking_through_a_telescope", "drinking", "brushing_teeth", "jumping", "cleaning_the_floor", "climbing", 
+    //    "using_a_computer", "rowing_a_boat", "fixing_a_car", "gardening", "writing_on_a_board", "blowing_bubbles", 
+    //    "cutting_trees", "washing_dishes", "waving_hands", "running", "phoning", "cooking", "looking_through_a_microscope", 
+    //    "writing_on_a_book", "smoking", "fixing_a_bike"
+    //};
     std::vector<std::string> class_names = {
-        "sitting", "using_laptop","hugging","sleeping","drinking","clapping","dancing",
-        "cycling","calling","laughing","eating","fighting","listening_to_music",
-        "running","texting"
+        "drinking", "texting_message", "waving_hands", "phoning", "smoking", "normal"
     };
     yolov8->load("model.ncnn", target_size, mean_vals, norm_vals, class_names, true);
 
 
-    //static Pose_Classification* pose_classification = new Pose_Classification();
-    //std::vector<std::string> pose_name = { "stand", "lay", "sit" };
-    //pose_classification->load("test-sim-opt-fp16", width, height, pose_name, true);
+    static Pose_Classification* pose_classification = new Pose_Classification();
+    std::vector<std::string> pose_name = { "stand", "lay", "sit" };
+    pose_classification->load("test-sim-opt", width, height, pose_name, true);
 
 
     static Yolo_Pose* yolopose = new Yolo_Pose();
@@ -113,32 +121,50 @@ int main(int argc, char** argv)
     std::chrono::system_clock::time_point start_time;
     cv::Mat frame;
 
+    std::vector<std::variant<float, int>> _result;
+
+
+    std::vector<std::thread> threads;
+    ncnn::Mat _in_pad;
+
+    threads.push_back(std::thread([&] {
+        capture >> frame;
+        cv::Mat m = frame.clone();
+        _result.clear();
+        _result = process_img(_in_pad, m, target_size, norm_vals);
+        }));
 
     while (true)
     {
+        threads[0].join();
+        threads.clear();
+
+        std::vector<std::variant<float, int>> result = _result;
+
+        ncnn::Mat in_pad = _in_pad.clone();
         start_time = std::chrono::system_clock::now();
-
-        capture >> frame;
-
+        threads.push_back(std::thread([&] {
+            capture >> frame;
+            cv::Mat m = frame.clone();
+            _result.clear();
+            _result = process_img(_in_pad, m, target_size, norm_vals);
+            }));
         //cv::Mat frame = screenshot.getScreenshot(0,0,1000,1000);
 
-        cv::Mat m = frame.clone();
 
         //std::vector<Object_pose> objects;
         //yoloPose->detect(m, objects);
         //yoloPose->draw(frame, objects);
 
-        //std::vector<ObjectYolov8> objects;
-        //yolov8->detect(m, objects);
-        //yolov8->draw(frame, objects);
-
+        std::vector<ObjectYolov8> objects;
+        yolov8->detect(in_pad, objects, result);
+        yolov8->draw(frame, objects);
 
 
         std::vector<Object_Pose> objects_face;
-        yolopose->detect(m, objects_face);
-        //pose_classification->detect(objects_face);
+        yolopose->detect(in_pad, objects_face, result);
+        pose_classification->detect(objects_face);
         yolopose->draw(frame, objects_face);
-
         //std::vector<Object_Face> objectsz;
         //yolo_body_pose->detect(m, objectsz);
         //yolo_body_pose->draw(frame, objectsz);
@@ -153,6 +179,7 @@ int main(int argc, char** argv)
         if (cv::waitKey(1) > 0) {
             break;
         };
+
         //break;
     }
 }

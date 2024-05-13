@@ -392,48 +392,48 @@ float euclidean_distance(float x1, float x2, float y1, float y2) {
 }
 
 
-int Yolo_Pose::detect(const cv::Mat& bgr, std::vector<Object_Pose>& objects, float prob_threshold, float nms_threshold) {
-    int img_w = bgr.cols;
-    int img_h = bgr.rows;
-    // letterbox pad to multiple of MAX_STRIDE
-    int w = img_w;
-    int h = img_h;
-    float scale = 1.f;
-    if (w > h)
-    {
-        scale = (float)target_size / w;
-        w = target_size;
-        h = h * scale;
-    }
-    else
-    {
-        scale = (float)target_size / h;
-        h = target_size;
-        w = w * scale;
-    }
+int Yolo_Pose::detect(ncnn::Mat in_pad, std::vector<Object_Pose>& objects, std::vector<std::variant<float, int>> &result, float prob_threshold, float nms_threshold) {
+    //int img_w = bgr.cols;
+    //int img_h = bgr.rows;
+    //// letterbox pad to multiple of MAX_STRIDE
+    //int w = img_w;
+    //int h = img_h;
+    //float scale = 1.f;
+    //if (w > h)
+    //{
+    //    scale = (float)target_size / w;
+    //    w = target_size;
+    //    h = h * scale;
+    //}
+    //else
+    //{
+    //    scale = (float)target_size / h;
+    //    h = target_size;
+    //    w = w * scale;
+    //}
 
-    ncnn::Mat in = ncnn::Mat::from_pixels_resize(bgr.data, ncnn::Mat::PIXEL_BGR2RGB, img_w, img_h, w, h);
+    //ncnn::Mat in = ncnn::Mat::from_pixels_resize(bgr.data, ncnn::Mat::PIXEL_BGR2RGB, img_w, img_h, w, h);
 
 
-    int wpad = std::abs(w - target_size);
-    int hpad = std::abs(h - target_size);
+    //int wpad = std::abs(w - target_size);
+    //int hpad = std::abs(h - target_size);
 
-    int top = hpad / 2;
-    int bottom = hpad - hpad / 2;
-    int left = wpad / 2;
-    int right = wpad - wpad / 2;
+    //int top = hpad / 2;
+    //int bottom = hpad - hpad / 2;
+    //int left = wpad / 2;
+    //int right = wpad - wpad / 2;
 
-    ncnn::Mat in_pad;
-    ncnn::copy_make_border(in,
-        in_pad,
-        top,
-        bottom,
-        left,
-        right,
-        ncnn::BORDER_CONSTANT,
-        114.f);
+    //ncnn::Mat in_pad;
+    //ncnn::copy_make_border(in,
+    //    in_pad,
+    //    top,
+    //    bottom,
+    //    left,
+    //    right,
+    //    ncnn::BORDER_CONSTANT,
+    //    114.f);
 
-    in_pad.substract_mean_normalize(0, norm_vals);
+    //in_pad.substract_mean_normalize(0, norm_vals);
 
     ncnn::Extractor ex = yolo.create_extractor();
 
@@ -450,8 +450,8 @@ int Yolo_Pose::detect(const cv::Mat& bgr, std::vector<Object_Pose>& objects, flo
     //qsort_descent_inplace(proposals);
 
     non_max_suppression(num_classes, proposals, objects,
-        img_h, img_w, hpad / 2, wpad / 2,
-        scale, scale, prob_threshold, nms_threshold);
+        std::get<int>(result[0]), std::get<int>(result[1]), std::get<float>(result[2]), std::get<float>(result[3]),
+        std::get<float>(result[4]), std::get<float>(result[4]), prob_threshold, nms_threshold);;
     //for (Object_Pose& obj : objects) {
     //    printf("%s - ÷√–≈∂»: %f\n",class_names[obj.label], obj.prob);
     //}

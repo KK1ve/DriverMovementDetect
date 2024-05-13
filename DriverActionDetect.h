@@ -3,6 +3,7 @@
 
 #ifndef DRIVER_ACTION_DETECT_H
 #define DRIVER_ACTION_DETECT_H
+#include <variant>
 
 #include "layer.h"
 #include "net.h"

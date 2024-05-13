@@ -15,6 +15,7 @@
 #ifndef YOLOv8_H
 #define YOLOv8_H
 #include<omp.h>
+#include <variant>
 
 #include <opencv2/core/core.hpp>
 
@@ -36,7 +37,7 @@ public:
 
     //int load(AAssetManager* mgr, const char* modeltype, int target_size, const float* mean_vals, const float* norm_vals, bool use_gpu = false);
 
-    int detect(const cv::Mat& rgb, std::vector<ObjectYolov8>& objects, float prob_threshold = 0.7f, float nms_threshold = 0.5f);
+    int detect(ncnn::Mat in_pad, std::vector<ObjectYolov8>& objects, std::vector<std::variant<float, int>> &result,float prob_threshold = 0.7f, float nms_threshold = 0.5f);
 
     int draw(cv::Mat& rgb, const std::vector<ObjectYolov8>& objects);
 
