@@ -102,8 +102,8 @@ int main(int argc, char** argv)
 
 
     static Pose_Classification* pose_classification = new Pose_Classification();
-    std::vector<std::string> pose_name = { "stand", "lay", "sit" };
-    pose_classification->load("test-sim-opt", width, height, pose_name, true);
+    std::vector<std::string> pose_name = { "up", "bending", "fall" };
+    pose_classification->load("test-sim-opt-fp16", width, height, pose_name, true);
 
 
     static Yolo_Pose* yolopose = new Yolo_Pose();
