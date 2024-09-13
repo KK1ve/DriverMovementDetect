@@ -2,7 +2,7 @@
 #include <iostream>
 
 using namespace Eigen;
-
+using namespace deep_sort;
 NearNeighborDisMetric::NearNeighborDisMetric(
     NearNeighborDisMetric::METRIC_TYPE metric, 
     float matching_threshold, int budget)

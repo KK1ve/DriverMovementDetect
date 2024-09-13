@@ -13,13 +13,29 @@
 //    this->gLogger = gLogger;
 //    init();
 //}
+using namespace deep_sort;
+
+
+static bool cmp_score(const DetectBox& box1, const DetectBox& box2)
+{
+
+    if (box1.confidence == box2.confidence)
+    {
+        if(box1.x1 == box2.x1)
+        {
+            return box1.y1 > box2.y1;
+        }
+        return box1.x1 > box2.x1;
+    }
+    return box1.confidence > box2.confidence;
+}
 
 DeepSort::DeepSort(std::string modelPath, int batchSize, int featureDim, int gpuID) {
     this->gpuID = gpuID;
     this->enginePath = modelPath;
     this->batchSize = batchSize;
     this->featureDim = featureDim;
-    this->imgShape = cv::Size(64, 128);
+    this->imgShape = cv::Size(256, 128);
     this->maxBudget = 100;
     this->maxCosineDist = 0.2;
     init();
@@ -42,6 +58,8 @@ void DeepSort::sort(cv::Mat& frame, vector<DetectBox>& dets) {
     // preprocess Mat -> DETECTION
     DETECTIONS detections;
     vector<CLSCONF> clsConf;
+    vector<vector<float>> kpss;
+    vector<vector<float>> rects;
 
     for (DetectBox i : dets) {
         DETECTBOX box(i.x1, i.y1, i.x2 - i.x1, i.y2 - i.y1);
@@ -70,6 +88,8 @@ void DeepSort::sort(cv::Mat& frame, vector<DetectBox>& dets) {
         dets[i].classID = c.cls;
         dets[i].confidence = c.conf;
     }
+
+    std::sort(dets.begin(), dets.end(), cmp_score);
 }
 
 

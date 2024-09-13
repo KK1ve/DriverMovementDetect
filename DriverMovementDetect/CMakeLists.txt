@@ -21,6 +21,6 @@ aux_source_directory(include INCLUDE_LIST)
 add_executable (${PROJECT_NAME} ${SRC_LIST} ${INCLUDE_LIST} main.cpp)
 
 
-target_include_directories(${PROJECT_NAME} PUBLIC "${ONNXRUNTIME_DIR}/include" ${CMAKE_SOURCE_DIR}/ByteTrack/include)
-target_link_libraries(${PROJECT_NAME} ByteTrack "${ONNXRUNTIME_DIR}/lib/libonnxruntime.so" ${OpenCV_LIBS} OpenMP::OpenMP_CXX pthread)
+target_include_directories(${PROJECT_NAME} PUBLIC "${ONNXRUNTIME_DIR}/include" ${CMAKE_SOURCE_DIR}/DeepSort/include)
+target_link_libraries(${PROJECT_NAME} DeepSort "${ONNXRUNTIME_DIR}/lib/libonnxruntime.so" ${OpenCV_LIBS} OpenMP::OpenMP_CXX pthread)
 

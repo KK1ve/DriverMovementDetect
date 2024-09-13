@@ -1,7 +1,7 @@
 #include "../include/linear_assignment.h"
 #include "../include/hungarianoper.h"
 #include <map>
-
+using namespace deep_sort;
 linear_assignment *linear_assignment::instance = NULL;
 linear_assignment::linear_assignment()
 {

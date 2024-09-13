@@ -18,7 +18,7 @@
  */
 
 #include "../include/munkres.h"
-
+using namespace deep_sort;
 template class Munkres<double>;
 template class Munkres<float>;
 template class Munkres<int>;

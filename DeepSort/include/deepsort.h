@@ -1,5 +1,4 @@
-#ifndef DEEPSORT_H
-#define DEEPSORT_H
+#pragma once
 
 #ifdef _DLL_EXPORTS
 #define DLL_API _declspec(dllexport)
@@ -13,44 +12,45 @@
 #include "tracker.h"
 #include "datatype.h"
 #include <vector>
-
 using std::vector;
-//using nvinfer1::ILogger;
 
-class DeepSort {
-public:    
-    //DeepSort(std::string modelPath, int batchSize, int featureDim, int gpuID, ILogger* gLogger);
-    DeepSort(std::string modelPath, int batchSize, int featureDim, int gpuID);
+namespace deep_sort
+{
+    //using nvinfer1::ILogger;
 
-    ~DeepSort();
+    class DeepSort {
+    public:
+        //DeepSort(std::string modelPath, int batchSize, int featureDim, int gpuID, ILogger* gLogger);
+        DeepSort(std::string modelPath, int batchSize, int featureDim, int gpuID);
 
-public:
-    void sort(cv::Mat& frame, vector<DetectBox>& dets);
-     
-private:
-    void sort(cv::Mat& frame, DETECTIONS& detections);
-    void sort(cv::Mat& frame, DETECTIONSV2& detectionsv2);    
-    void sort(vector<DetectBox>& dets);
-    void sort(DETECTIONS& detections);
-    void init();
+        ~DeepSort();
 
-private:
-    std::string enginePath;
-    int batchSize;
-    int featureDim;
-    cv::Size imgShape;
-    float confThres;
-    float nmsThres;
-    int maxBudget;
-    float maxCosineDist;
+    public:
+        void sort(cv::Mat& frame, vector<DetectBox>& dets);
 
-private:
-    vector<RESULT_DATA> result;
-    vector<std::pair<CLSCONF, DETECTBOX>> results;
-    tracker* objTracker;
-    FeatureTensor* featureExtractor;
-    //ILogger* gLogger;
-    int gpuID;
-};
+    private:
+        void sort(cv::Mat& frame, DETECTIONS& detections);
+        void sort(cv::Mat& frame, DETECTIONSV2& detectionsv2);
+        void sort(vector<DetectBox>& dets);
+        void sort(DETECTIONS& detections);
+        void init();
 
-#endif  //deepsort.h
+    private:
+        std::string enginePath;
+        int batchSize;
+        int featureDim;
+        cv::Size imgShape;
+        float confThres;
+        float nmsThres;
+        int maxBudget;
+        float maxCosineDist;
+
+    private:
+        vector<RESULT_DATA> result;
+        vector<std::pair<CLSCONF, DETECTBOX>> results;
+        tracker* objTracker;
+        FeatureTensor* featureExtractor;
+        //ILogger* gLogger;
+        int gpuID;
+    };
+}

@@ -1,7 +1,7 @@
 #include "../include/kalmanfilter.h"
 #include <Eigen/Cholesky>
 #include <iostream>
-
+using namespace deep_sort;
 const double KalmanFilter::chi2inv95[10] = {
     0,
     3.8415,

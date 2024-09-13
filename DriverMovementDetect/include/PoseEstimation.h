@@ -8,7 +8,7 @@
 
 #include <opencv2/highgui.hpp>
 #include <cmath>
-#include <map>
+
 #include <onnxruntime_cxx_api.h>
 #include <string>
 #include <vector>
@@ -23,6 +23,7 @@ using namespace Ort;
 
 struct ObjectPose
 {
+    // x左上角 y左上角
     cv::Rect_<float> rect;
     int label;
     float prob;

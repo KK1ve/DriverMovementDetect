@@ -53,7 +53,7 @@ IS::IS(const string& modelpath, const float nms_thresh_, const float conf_thresh
 Mat IS::preprocess(const Mat& video_mat)
 {
     Mat resizeimg;
-    resize(video_mat, resizeimg, cv::Size(this->inpWidth, this->inpHeight));
+    resize(video_mat, resizeimg, cv::Size(this->inpHeight, this->inpWidth));
     resizeimg.convertTo(resizeimg, CV_32FC3, 1/255.0);
     return resizeimg;
 }

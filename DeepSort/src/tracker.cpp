@@ -2,7 +2,7 @@
 #include "../include/nn_matching.h"
 #include "../include/linear_assignment.h"
 using namespace std;
-
+using namespace deep_sort;
 #define MY_inner_DEBUG
 #ifdef MY_inner_DEBUG
 #include <string>

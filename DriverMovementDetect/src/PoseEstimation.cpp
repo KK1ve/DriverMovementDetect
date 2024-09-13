@@ -7,6 +7,14 @@
 #include <fstream>
 
 static bool cmp_score(const ObjectPose& box1, const ObjectPose& box2) {
+    if (box1.prob == box2.prob)
+    {
+        if(box1.rect.x == box2.rect.x)
+        {
+            return box1.rect.y > box2.rect.y;
+        }
+        return box1.rect.x > box2.rect.x;
+    }
     return box1.prob > box2.prob;
 }
 
@@ -125,7 +133,7 @@ Mat PE::preprocess(const Mat& video_mat)
 {
 
     Mat resizeimg;
-    resize(video_mat, resizeimg, cv::Size(this->inpWidth, this->inpHeight));
+    resize(video_mat, resizeimg, cv::Size(this->inpHeight, this->inpWidth));
     resizeimg.convertTo(resizeimg, CV_32FC3, 1.0 / 255);
     // cvtColor(resizeimg, resizeimg, cv::COLOR_BGR2RGB);
     return resizeimg;
@@ -181,8 +189,8 @@ void PE::generate_proposal_multi_hot(const float *pred, vector<ObjectPose> &boxe
 {
 
     const int kps_num = (grid_w - 4 - num_class) / 3;
-    std::vector<std::vector<float>> table(grid_h, std::vector<float>(grid_w));
-    /*fstream f("data.csv");
+    /*std::vector<std::vector<float>> table(grid_h, std::vector<float>(grid_w));
+    fstream f("data.csv");
     for (int i = 0 ; i < grid_h; i ++)
     {
         f << i << ",";

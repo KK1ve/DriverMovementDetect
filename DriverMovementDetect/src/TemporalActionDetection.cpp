@@ -179,7 +179,7 @@ TAD::TAD(const string& modelpath,const int _origin_h, const int _origin_w, const
 Mat TAD::preprocess(const Mat& video_mat)
 {
     Mat resizeimg;
-    resize(video_mat, resizeimg, cv::Size(this->inpWidth, this->inpHeight));
+    resize(video_mat, resizeimg, cv::Size(this->inpHeight, this->inpWidth));
     resizeimg.convertTo(resizeimg, CV_32FC3, 1.0 / 255);
     return resizeimg;
 
@@ -275,7 +275,7 @@ vector<int> TAD::detect_one_hot(const Mat& input_mat, vector<Bbox> &boxes, vecto
     vector<Value> ort_outputs = this->ort_session->Run(runOptions, this->input_names.data(), &input_tensor_, this->input_names.size(), this->output_names.data(), this->output_names.size());
     this->end_time = std::chrono::system_clock::now();
     diff = this->end_time - this->start_time;
-    cout << "向前推理时间：" << diff.count() << endl;
+    // cout << "向前推理时间：" << diff.count() << endl;
     diffs.emplace_back(diff.count());
     const float *conf_preds0 = ort_outputs[0].GetTensorMutableData<float>();
     const float *conf_preds1 = ort_outputs[1].GetTensorMutableData<float>();
