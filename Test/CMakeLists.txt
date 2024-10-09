@@ -18,5 +18,5 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 add_executable (${PROJECT_NAME} test.cpp test.h)
 
 
-target_include_directories(${PROJECT_NAME} PUBLIC "${ONNXRUNTIME_DIR}/include" )
-target_link_libraries(${PROJECT_NAME} "${ONNXRUNTIME_DIR}/lib/libonnxruntime.so" ${OpenCV_LIBS} OpenMP::OpenMP_CXX pthread)
+target_include_directories(${PROJECT_NAME} PUBLIC "${ONNXRUNTIME_DIR}/include" ${CMAKE_SOURCE_DIR}/DeepSort/include)
+target_link_libraries(${PROJECT_NAME} DeepSort "${ONNXRUNTIME_DIR}/lib/libonnxruntime.so" ${OpenCV_LIBS} OpenMP::OpenMP_CXX pthread)

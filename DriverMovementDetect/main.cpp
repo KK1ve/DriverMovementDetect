@@ -7,7 +7,80 @@
 #include "deepsort.h"
 using namespace std;
 
-void detect(Mat& frame, PE& PENet, TAD& TADNet, deep_sort::DeepSort& DS, VideoWriter& vwriter, int width, int height)
+float get_iou_value(ObjectPose& object_pose, deep_sort::DetectBox& detect_box)
+{
+    int xx1, yy1, xx2, yy2;
+
+    xx1 = std::max(object_pose.rect.x, detect_box.x1);
+    yy1 = std::max(object_pose.rect.y, detect_box.y1);
+    xx2 = std::min(object_pose.rect.x + object_pose.rect.width - 1, detect_box.x1 + (detect_box.x2 - detect_box.x1) - 1);
+    yy2 = std::min(object_pose.rect.y + object_pose.rect.height - 1, detect_box.y1 + (detect_box.y2 - detect_box.y1) - 1);
+
+    int insection_width, insection_height;
+    insection_width = std::max(0, xx2 - xx1 + 1);
+    insection_height = std::max(0, yy2 - yy1 + 1);
+
+    float insection_area, union_area, iou;
+    insection_area = float(insection_width) * insection_height;
+    union_area = float(object_pose.rect.width * object_pose.rect.height + (detect_box.x2 - detect_box.x1) * (detect_box.y2 - detect_box.y1) - insection_area);
+    iou = insection_area / union_area;
+    return iou;
+}
+
+void get_relate_track(vector<ObjectPose>& object_poses, vector<deep_sort::DetectBox>& detect_boxes){
+
+    if(object_poses.size() >= detect_boxes.size()){
+        vector<int> related_track_vector_index(detect_boxes.size(), 0);
+        for(auto & object_pose : object_poses)
+        {
+            if (object_pose.label != 0) continue;
+            float max_iou = LONG_MIN;
+            int relate = -1;
+            for(int j = 0; j < detect_boxes.size(); j ++)
+            {
+                if(related_track_vector_index[j] == 1) continue;
+                auto iou = get_iou_value(object_pose, detect_boxes[j]);
+                if (iou > max_iou)
+                {
+                    max_iou = iou;
+                    relate = j;
+                }
+
+            }
+            if(relate == -1) continue;
+            related_track_vector_index[relate] = 1;
+            object_pose.track_id = detect_boxes[relate].trackID;
+        }
+    }else
+    {
+        vector<int> related_object_vector_index(object_poses.size(), 0);
+        for(auto & detect_box : detect_boxes)
+        {
+            float max_iou = LONG_MIN;
+            int relate = -1;
+            for(int j = 0; j < object_poses.size(); j ++)
+            {
+                if(related_object_vector_index[j] == 1) continue;
+                auto iou = get_iou_value(object_poses[j], detect_box);
+                if (iou > max_iou)
+                {
+                    max_iou = iou;
+                    relate = j;
+                }
+
+            }
+            if(relate == -1) continue;
+            related_object_vector_index[relate] = 1;
+            object_poses[relate].track_id = detect_box.trackID;
+        }
+
+
+    }
+
+
+}
+
+int detect(Mat& frame, PE& PENet, TAD& TADNet, deep_sort::DeepSort& DS, VideoWriter& vwriter, int width, int height)
 {
     vector<deep_sort::DetectBox> track_objects;
     vector<ObjectPose> object_poses;
@@ -18,8 +91,11 @@ void detect(Mat& frame, PE& PENet, TAD& TADNet, deep_sort::DeepSort& DS, VideoWr
         // vector<int> keep_inds = TADNet.detect_one_hot(frame, boxes, det_conf, cls_conf); ////keep_inds记录vector里面的有效检测框的序号
         // Mat dstimg = TADNet.vis_one_hot(frame, boxes, det_conf, cls_conf, keep_inds, vis_thresh);
 
-
+        auto s_time = std::chrono::system_clock::now();
         PENet.detect_multi_hot(frame, object_poses);
+        auto e_time = std::chrono::system_clock::now();
+        std::chrono::duration<float> diff = e_time - s_time;
+        cout << "PE TIME: " << diff.count() << endl;
         if (!object_poses.empty())
         {
             for(auto& o: object_poses)
@@ -43,25 +119,29 @@ void detect(Mat& frame, PE& PENet, TAD& TADNet, deep_sort::DeepSort& DS, VideoWr
         }else
         {
             vwriter.write(PENet.vis_multi_hot(frame, object_poses));
-            return;
+            return 1;
         }
-
+        s_time = std::chrono::system_clock::now();
         DS.sort(frame, track_objects);
+        e_time = std::chrono::system_clock::now();
+        diff = e_time - s_time;
+        cout << "TRACK TIME: " << diff.count() << endl;
         if (!track_objects.empty())
         {
             std::map<unsigned long, Mat> track_imgs;
-            for(int i = 0; i < track_objects.size(); i ++)
-            {
-                if(i < object_poses.size())
-                {
-                    object_poses[i].track_id = track_objects[i].trackID;
-                    track_imgs[object_poses[i].track_id] = frame(object_poses[i].rect).clone();
-                }
 
+            get_relate_track(object_poses, track_objects);
+
+            for(auto& o: object_poses)
+            {
+                track_imgs[o.track_id] = frame(o.rect).clone();
             }
 
-
+            auto s_time = std::chrono::system_clock::now();
             auto action_result = TADNet.detect_multi_hot(track_imgs);
+            auto e_time = std::chrono::system_clock::now();
+            std::chrono::duration<float> diff = e_time - s_time;
+            cout << "TAD TIME: " << diff.count() << endl;
             for(auto& o: object_poses)
             {
                 if(o.label == 0)
@@ -87,15 +167,17 @@ void detect(Mat& frame, PE& PENet, TAD& TADNet, deep_sort::DeepSort& DS, VideoWr
     }catch (exception& e)
     {
         cout << e.what() << endl;
+        return 0;
     }
+    return 1;
 
 }
 
 
 int main(int argc, char* argv[]) {
 
-    const string videopath = R"(/home/lsy/CProject/DriverActionDetect/videos/娱越体育 运动超人篮球操 教学视频.mp4)";
-    const string savepath = R"(/home/lsy/CProject/DriverActionDetect/videos/娱越体育 运动超人篮球操 教学视频-result.mp4)";
+    const string videopath = R"(/home/lsy/CProject/DriverActionDetect/videos/考试惊现路怒症，考官极力安慰无果.mp4)";
+    const string savepath = R"(/home/lsy/CProject/DriverActionDetect/videos/考试惊现路怒症，考官极力安慰无果-result.mp4)";
     VideoCapture vcapture(videopath);
     if (!vcapture.isOpened())
     {
@@ -133,8 +215,10 @@ int main(int argc, char* argv[]) {
     {
         end_time = std::chrono::system_clock::now();
         diff = end_time - start_time;
-        cout << "总 向前推理时间：" << diff.count() << endl;
+        // cout << "总 向前推理时间：" << diff.count() << endl;
         start_time = std::chrono::system_clock::now();
+
+        cout << "Time: " << diff.count() << endl;
         current_frame_id += 1;
 
         if (frame.empty())
@@ -143,8 +227,14 @@ int main(int argc, char* argv[]) {
             return -1;
         }
         cout << "frame id :" << current_frame_id << endl;
+        cout << endl;
 
-        detect(frame, PENet, TADNet, DS, vwriter, width, height);
+        int ret = detect(frame, PENet, TADNet, DS, vwriter, width, height);
+        if(ret == 0)
+        {
+            cout << "ERROR AT: " << current_frame_id << endl;
+            return 0;
+        }
 
     }
 

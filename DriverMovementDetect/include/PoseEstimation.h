@@ -29,7 +29,7 @@ struct ObjectPose
     float prob;
     std::vector<float> kps;
     vector<float> action_prob;
-    unsigned long track_id;
+    unsigned long track_id = -1;
 };
 class PE
 {

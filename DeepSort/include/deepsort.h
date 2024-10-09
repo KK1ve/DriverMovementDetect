@@ -21,7 +21,7 @@ namespace deep_sort
     class DeepSort {
     public:
         //DeepSort(std::string modelPath, int batchSize, int featureDim, int gpuID, ILogger* gLogger);
-        DeepSort(std::string modelPath, int batchSize, int featureDim, int gpuID);
+        DeepSort(std::string modelPath, int batchSize, int featureDim, int gpuID, int _maxBudget=100, int maxConsineDist=0.2);
 
         ~DeepSort();
 
