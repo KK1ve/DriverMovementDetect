@@ -22,9 +22,12 @@ void sad(vector<int> &a)
 }
 
 int main() {
-    deep_sort::DeepSort DS(R"(/home/lsy/CProject/DriverActionDetect/model_zoo/osnet.onnx)", 128, FEATURE_VECTOR_DIM, 0, 30 * 5);
-
-
-    return 0;
+    int m_num_channels = 100;
+    auto m_input_f32 = new float[m_num_channels];
+    float *channel_base = m_input_f32;
+    channel_base += 100;
+    for (int i = 0; i < m_num_channels; i++) {
+        channel_base += 512 * 1024;
+    }
 
 }

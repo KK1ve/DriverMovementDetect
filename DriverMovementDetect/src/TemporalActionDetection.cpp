@@ -73,6 +73,14 @@ std::vector<int> multiclass_nms_class_agnostic(std::vector<Bbox> boxes, std::vec
         {
             continue;
         }
+        vector<float> ious(boxes.size());
+
+        #pragma omp parallel for
+        for (int j = i + 1; j < boxes.size(); ++j)
+        {
+            ious[j] = GetIoU(boxes[i], boxes[j]);
+        }
+
         for (int j = i + 1; j < num_box; ++j)
         {
             if (isSuppressed[j])
@@ -80,8 +88,7 @@ std::vector<int> multiclass_nms_class_agnostic(std::vector<Bbox> boxes, std::vec
                 continue;
             }
 
-            float ovr = GetIoU(boxes[i], boxes[j]);
-            if (ovr > nms_thresh)
+            if (ious[j] > nms_thresh)
             {
                 isSuppressed[j] = true;
             }
@@ -103,52 +110,26 @@ bool isZero(int num) { return num == 0; }
 
 TAD::TAD(const string& modelpath,const int _origin_h, const int _origin_w, const float nms_thresh_, const float conf_thresh_, const int _rate)
 {
-    sessionOptions.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
-    // ThrowOnError(OrtSessionOptionsAppendExecutionProvider_Tensorrt(sessionOptions, 0));
-    ThrowOnError(OrtSessionOptionsAppendExecutionProvider_CUDA(sessionOptions, 0));
+    // creat handle
+    BMNNHandlePtr handle = make_shared<BMNNHandle>(0);
+    bm_handle_t h = handle->handle();
 
-//    std::wstring widestr = std::wstring(modelpath.begin(), modelpath.end()); ////windows
-//    ort_session = new Session(env, widestr.c_str(), sessionOptions); ////windows
-    ort_session = new Session(env, modelpath.c_str(), sessionOptions); ////linux
-    rate = _rate;
-    current_rate = 0;
-    for (int i = 0; i < rate ; i ++)
-    {
-        vector<Mat> z;
-        video_clips.emplace_back(z);
-    }
-    size_t numInputNodes = ort_session->GetInputCount();
-    size_t numOutputNodes = ort_session->GetOutputCount();
-    AllocatorWithDefaultOptions allocator;
-    for (int i = 0; i < numInputNodes; i++)
-    {
-        unique_ptr<char, Ort::detail::AllocatedFree> name = ort_session->GetInputNameAllocated(i, allocator);
-        char* _name = name.get();
-        size_t len = strlen(_name) + 1;
-        char* copy_name = new char[len];
-        memcpy(copy_name, _name, len);
-        input_names.push_back(copy_name);
-        Ort::TypeInfo input_type_info = ort_session->GetInputTypeInfo(i);
-        auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
-        auto input_dims = input_tensor_info.GetShape();
-        input_node_dims.push_back(input_dims);
-    }
-    for (int i = 0; i < numOutputNodes; i++)
-    {
-        unique_ptr<char, Ort::detail::AllocatedFree> name = ort_session->GetOutputNameAllocated(i, allocator);
-        char* _name = name.get();
-        size_t len = strlen(_name) + 1;
-        char* copy_name = new char[len];
-        memcpy(copy_name, _name, len);
-        output_names.push_back(copy_name);
-        Ort::TypeInfo output_type_info = ort_session->GetOutputTypeInfo(i);
-        auto output_tensor_info = output_type_info.GetTensorTypeAndShapeInfo();
-        auto output_dims = output_tensor_info.GetShape();
-        output_node_dims.push_back(output_dims);
-    }
-    this->len_clip = this->input_node_dims[0][2];
-    this->inpHeight = this->input_node_dims[0][3];
-    this->inpWidth = this->input_node_dims[0][4];
+    m_bmContext = make_shared<BMNNContext>(handle, modelpath.c_str());
+
+
+    // 1. get network
+    m_bmNetwork = m_bmContext->network(0);
+
+    m_input_tensor = m_bmNetwork->inputTensor(0);
+    bmrt_tensor(&bm_input_tensor,
+                m_bmContext->bmrt(),
+                m_input_tensor->get_dtype(),
+                *m_input_tensor->get_shape());
+    m_input_tensor->set_device_mem(&bm_input_tensor.device_mem);
+
+    this->len_clip = m_input_tensor->get_shape()->dims[2];
+    this->inpHeight = m_input_tensor->get_shape()->dims[3];
+    this->inpWidth = m_input_tensor->get_shape()->dims[4];
     this->conf_thresh = conf_thresh_;
     this->nms_thresh = nms_thresh_;
     this->origin_h = _origin_h;
@@ -228,7 +209,7 @@ void TAD::clear_clips_cache()
     multi_video_clips.clear();
 }
 
-vector<int> TAD::detect_one_hot(const Mat& input_mat, vector<Bbox> &boxes, vector<float> &det_conf, vector<vector<float>> &cls_conf)
+/*vector<int> TAD::detect_one_hot(const Mat& input_mat, vector<Bbox> &boxes, vector<float> &det_conf, vector<vector<float>> &cls_conf)
 {
     Mat preprocessed_mat = preprocess(input_mat);
     if(video_clips[current_rate].empty())
@@ -305,7 +286,7 @@ vector<int> TAD::detect_one_hot(const Mat& input_mat, vector<Bbox> &boxes, vecto
         boxes[ind].ymax = int((float)boxes[ind].ymax * ratio_h);
     }
     return keep_inds;
-}
+}*/
 
 std::map<unsigned long, vector<float>> TAD::detect_multi_hot(const std::map<size_t, Mat>& video_mat_with_track_id)
 {
@@ -340,23 +321,35 @@ std::map<unsigned long, vector<float>> TAD::detect_multi_hot(const std::map<size
 
     batch_size = video_mat_with_track_id.size();
     const int image_area = this->inpHeight * this->inpWidth;
-    input_tensor.resize(batch_size * 3 * this->len_clip * image_area);
+    input_tensor.resize(3 * this->len_clip * image_area);
     size_t single_chn_size = image_area * sizeof(float);
     const int chn_area = this->len_clip * image_area;
     const int batch_area = chn_area * 3;
-    int _b = -1;
+
+    vector<float> pre_result(batch_size * num_class);
     for(auto &_vm : video_mat_with_track_id)
     {
-        _b += 1;
+        input_tensor.clear();
         for (int i = 0; i < this->len_clip; i++)
         {
             vector<cv::Mat> bgrChannels(3);
             split(multi_video_clips[_vm.first][current_rate][i], bgrChannels);
-            memcpy(this->input_tensor.data() + batch_area * _b + 0 * chn_area + i * image_area, (float *)bgrChannels[0].data, single_chn_size);
-            memcpy(this->input_tensor.data() + batch_area * _b + 1 * chn_area + i * image_area, (float *)bgrChannels[1].data, single_chn_size);
-            memcpy(this->input_tensor.data() + batch_area * _b + 2 * chn_area + i * image_area, (float *)bgrChannels[2].data, single_chn_size);
-
+            memcpy(this->input_tensor.data() + 0 * chn_area + i * image_area, (float *)bgrChannels[0].data, single_chn_size);
+            memcpy(this->input_tensor.data() + 1 * chn_area + i * image_area, (float *)bgrChannels[1].data, single_chn_size);
+            memcpy(this->input_tensor.data() + 2 * chn_area + i * image_area, (float *)bgrChannels[2].data, single_chn_size);
         }
+        bm_memcpy_s2d(m_bmContext->handle(), bm_input_tensor.device_mem, &input_tensor[0]);
+
+        this->start_time = std::chrono::system_clock::now();
+        m_bmNetwork->forward();
+        this->end_time = std::chrono::system_clock::now();
+        diff = this->end_time - this->start_time;
+        cout << "TAD 向前推理时间：" << diff.count() << endl;
+        diffs.emplace_back(diff.count());
+        std::shared_ptr<BMNNTensor> outputTensor = m_bmNetwork->outputTensor(0);
+        auto conf_preds = outputTensor->get_cpu_data();
+
+        pre_result.insert(pre_result.end(), conf_preds, conf_preds + num_class);
     }
 
     current_rate += 1;
@@ -366,23 +359,12 @@ std::map<unsigned long, vector<float>> TAD::detect_multi_hot(const std::map<size
     }
     // this->preprocess(video_clip);
 
-    std::vector<int64_t> input_img_shape = {batch_size, 3, this->len_clip, this->inpHeight, this->inpWidth};
-    Value input_tensor_ = Value::CreateTensor<float>(memory_info_handler, this->input_tensor.data(), this->input_tensor.size(), input_img_shape.data(), input_img_shape.size());
-
-    Ort::RunOptions runOptions;
-    this->start_time = std::chrono::system_clock::now();
-    vector<Value> ort_outputs = this->ort_session->Run(runOptions, this->input_names.data(), &input_tensor_, this->input_names.size(), this->output_names.data(), this->output_names.size());
-    this->end_time = std::chrono::system_clock::now();
-    diff = this->end_time - this->start_time;
-    cout << "TAD 向前推理时间：" << diff.count() << endl;
-    diffs.emplace_back(diff.count());
-    const float *_conf_preds = ort_outputs[0].GetTensorMutableData<float>();
-
-    auto* conf_preds = const_cast<float*>(_conf_preds);
-    softmax(conf_preds, batch_size, num_class);
 
 
-    _b = -1;
+    softmax(pre_result, batch_size, num_class);
+
+
+    int _b = -1;
     std::map<size_t, vector<float>> result;
     for(auto &_vm : video_mat_with_track_id)
     {
@@ -391,9 +373,10 @@ std::map<unsigned long, vector<float>> TAD::detect_multi_hot(const std::map<size
         result[_vm.first] = _temp;
         for(size_t _l = 0; _l < num_class; _l ++)
         {
-            result[_vm.first].emplace_back(conf_preds[_b * num_class + _l]);
+            result[_vm.first].emplace_back(pre_result[_b * num_class + _l]);
         }
     }
+    pre_result.clear();
 
     return result;
 

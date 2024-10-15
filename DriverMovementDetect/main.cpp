@@ -5,6 +5,7 @@
 #include <numeric>
 // #include "BYTETracker.h"
 #include "deepsort.h"
+#include "BYTETracker.h"
 using namespace std;
 
 float get_iou_value(ObjectPose& object_pose, deep_sort::DetectBox& detect_box)
@@ -138,7 +139,8 @@ int detect(Mat& frame, PE& PENet, TAD& TADNet, deep_sort::DeepSort& DS, VideoWri
             }
 
             auto s_time = std::chrono::system_clock::now();
-            auto action_result = TADNet.detect_multi_hot(track_imgs);
+            std::map<unsigned long, vector<float>> action_result;
+            // auto action_result = TADNet.detect_multi_hot(track_imgs);
             auto e_time = std::chrono::system_clock::now();
             std::chrono::duration<float> diff = e_time - s_time;
             cout << "TAD TIME: " << diff.count() << endl;
@@ -172,12 +174,104 @@ int detect(Mat& frame, PE& PENet, TAD& TADNet, deep_sort::DeepSort& DS, VideoWri
     return 1;
 
 }
+int detect(Mat& frame, PE& PENet, TAD& TADNet, byte_track::BYTETracker& BT, VideoWriter& vwriter, int width, int height)
+{
+    vector<deep_sort::DetectBox> track_objects;
+    vector<ObjectPose> object_poses;
+    try{
+        // vector<Bbox> boxes;
+        // vector<float> det_conf;
+        // vector<vector<float>> cls_conf;
+        // vector<int> keep_inds = TADNet.detect_one_hot(frame, boxes, det_conf, cls_conf); ////keep_inds记录vector里面的有效检测框的序号
+        // Mat dstimg = TADNet.vis_one_hot(frame, boxes, det_conf, cls_conf, keep_inds, vis_thresh);
+
+        auto s_time = std::chrono::system_clock::now();
+        PENet.detect_multi_hot(frame, object_poses);
+        auto e_time = std::chrono::system_clock::now();
+        std::chrono::duration<float> diff = e_time - s_time;
+        cout << "PE TIME: " << diff.count() << endl;
+        vector<byte_track::Object> track_objects;
+
+        if (!object_poses.empty())
+        {
+            for(auto& o: object_poses)
+            {
+                if (o.label != 0) continue;
+                byte_track::Rect<float> r(o.rect.x, o.rect.y, o.rect.width, o.rect.height);
+                byte_track::Object ob(r, o.label, o.prob);
+                track_objects.emplace_back(ob);
+
+            }
+        }else
+        {
+            vwriter.write(PENet.vis_multi_hot(frame, object_poses));
+            return 1;
+        }
+        s_time = std::chrono::system_clock::now();
+        auto track_data = BT.update(track_objects);
+        e_time = std::chrono::system_clock::now();
+        diff = e_time - s_time;
+        cout << "TRACK TIME: " << diff.count() << endl;
+        if (!track_objects.empty())
+        {
+            std::map<unsigned long, Mat> track_imgs;
+            for (int i = 0; i < track_data.size(); i ++)
+            {
+                int _x = track_data[i]->getRect().x() > width ? width : track_data[i]->getRect().x() < 0 ? 0 : track_data[i]->getRect().x();
+                int _y = track_data[i]->getRect().y() > height ? height : track_data[i]->getRect().y() < 0 ? 0 : track_data[i]->getRect().y();
+                int _width = track_data[i]->getRect().width() > width - _x ? width - _x : track_data[i]->getRect().width();
+                int _height = track_data[i]->getRect().height() > height - _y ? height - _y : track_data[i]->getRect().height();
+
+                object_poses[i].track_id = track_data[i]->getTrackId();
+                track_imgs[track_data[i]->getTrackId()] = frame(cv::Rect(
+                    _x,
+                    _y,
+                    _width,
+                    _height));
+            }
+
+            auto s_time = std::chrono::system_clock::now();
+            std::map<unsigned long, vector<float>> action_result;
+            // auto action_result = TADNet.detect_multi_hot(track_imgs);
+            auto e_time = std::chrono::system_clock::now();
+            std::chrono::duration<float> diff = e_time - s_time;
+            cout << "TAD TIME: " << diff.count() << endl;
+            for(auto& o: object_poses)
+            {
+                if(o.label == 0)
+                {
+                    o.action_prob = action_result[o.track_id];
+                }
+
+            }
+
+            // Mat pedstimg = PENet.vis_multi_hot(frame, object_poses, true);
+
+            // vwriter.write(pedstimg);
+            /*imshow("Detect", dstimg);
+            if (cv::waitKey(1) > 0) {
+                break;
+            };*/
+
+        }else
+        {
+            // vwriter.write(PENet.vis_multi_hot(frame, object_poses));
+        }
+
+    }catch (exception& e)
+    {
+        cout << e.what() << endl;
+        return 0;
+    }
+    return 1;
+
+}
 
 
 int main(int argc, char* argv[]) {
 
-    const string videopath = R"(/home/lsy/CProject/DriverActionDetect/videos/考试惊现路怒症，考官极力安慰无果.mp4)";
-    const string savepath = R"(/home/lsy/CProject/DriverActionDetect/videos/考试惊现路怒症，考官极力安慰无果-result.mp4)";
+    const string videopath = R"(/home/linaro/6A/videos/娱越体育运动超人篮球操教学视频.mp4)";
+    const string savepath = R"(/home/linaro/6A/videos/result-action-2.mp4)";
     VideoCapture vcapture(videopath);
     if (!vcapture.isOpened())
     {
@@ -188,14 +282,16 @@ int main(int argc, char* argv[]) {
     int width = vcapture.get(cv::CAP_PROP_FRAME_WIDTH);
 
 
-    TAD TADNet(R"(/home/lsy/CProject/DriverActionDetect/model_zoo/x3d_video.onnx)", height, width);
-    PE PENet(R"(/home/lsy/CProject/DriverActionDetect/model_zoo/yolov8s-pose-person-face-no-dynamic.onnx)", 0.6, 0.6);
+    TAD TADNet(R"(/home/linaro/6A/model_zoo/x3d_video.bmodel)", height, width);
+    PE PENet(R"(/home/linaro/6A/model_zoo/yolov8s-pose-person-face-no-dynamic.bmodel)", 0.6, 0.6);
 
 
     int fps = vcapture.get(cv::CAP_PROP_FPS);
     int video_length = vcapture.get(cv::CAP_PROP_FRAME_COUNT);
 
-    deep_sort::DeepSort DS(R"(/home/lsy/CProject/DriverActionDetect/model_zoo/osnet.onnx)", 128, FEATURE_VECTOR_DIM, 0);
+    // deep_sort::DeepSort DS(R"(/home/linaro/6A/model_zoo/osnet.bmodel)", 128, FEATURE_VECTOR_DIM, 0);
+
+    byte_track::BYTETracker tracker(fps, fps * 2, 0.5, 0.75, 0.9);
 
 
     VideoWriter vwriter;
@@ -210,15 +306,8 @@ int main(int argc, char* argv[]) {
     std::chrono::system_clock::time_point end_time = std::chrono::system_clock::now();
     std::chrono::duration<float> diff;
 
-
     while (vcapture.read(frame))
     {
-        end_time = std::chrono::system_clock::now();
-        diff = end_time - start_time;
-        // cout << "总 向前推理时间：" << diff.count() << endl;
-        start_time = std::chrono::system_clock::now();
-
-        cout << "Time: " << diff.count() << endl;
         current_frame_id += 1;
 
         if (frame.empty())
@@ -228,13 +317,20 @@ int main(int argc, char* argv[]) {
         }
         cout << "frame id :" << current_frame_id << endl;
         cout << endl;
+        start_time = std::chrono::system_clock::now();
+        int ret = detect(frame, PENet, TADNet, tracker, vwriter, width, height);
+        end_time = std::chrono::system_clock::now();
+        diff = end_time - start_time;
 
-        int ret = detect(frame, PENet, TADNet, DS, vwriter, width, height);
+        cout << "Detect Time: " << diff.count() << endl;
+
         if(ret == 0)
         {
             cout << "ERROR AT: " << current_frame_id << endl;
             return 0;
         }
+
+        if (current_frame_id >= 400) break;
 
     }
 
@@ -242,7 +338,6 @@ int main(int argc, char* argv[]) {
 
     vwriter.release();
     vcapture.release();
-    destroyAllWindows();
     // cout << "向前推理平均值：" << accumulate(begin(TADNet.diffs), end(TADNet.diffs), 0.0) / (float)TADNet.diffs.size() << endl;
 
     return 0;

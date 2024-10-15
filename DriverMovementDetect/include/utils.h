@@ -59,7 +59,7 @@ Container<B> unflat_transfer(const std::vector<A>& source, const std::vector<siz
     return target;
 }
 
-void softmax(float *x, int row, int column)
+void softmax(vector<auto> x, int row, int column)
 {
     for (int j = 0; j < row; ++j)
     {

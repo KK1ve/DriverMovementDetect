@@ -47,15 +47,20 @@ static void my_nms_boxes(const std::vector<ObjectPose>& boxes, float nmsThreshol
         {
             continue;
         }
+        vector<float> ious(boxes.size());
+        #pragma omp parallel for
+        for (int j = i + 1; j < boxes.size(); ++j)
+        {
+            ious[j] = get_iou_value(boxes[i], boxes[j]);
+        }
+
         for (int j = i + 1; j < boxes.size(); ++j)
         {
             if (isSuppressed[j])
             {
                 continue;
             }
-
-            float ovr = get_iou_value(boxes[i], boxes[j]);
-            if (ovr > nmsThreshold)
+            if (ious[j] > nmsThreshold)
             {
                 isSuppressed[j] = true;
             }
@@ -81,52 +86,32 @@ static float intersection_area(const ObjectPose& a, const ObjectPose& b)
 
 PE::PE(const string& modelpath, const float nms_thresh_, const float conf_thresh_)
 {
-    sessionOptions.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
-    // ThrowOnError(OrtSessionOptionsAppendExecutionProvider_Tensorrt(sessionOptions, 0));
-    ThrowOnError(OrtSessionOptionsAppendExecutionProvider_CUDA(sessionOptions, 0));
+    // creat handle
+    BMNNHandlePtr handle = make_shared<BMNNHandle>(0);
 
-//    std::wstring widestr = std::wstring(modelpath.begin(), modelpath.end()); ////windows
-//    ort_session = new Session(env, widestr.c_str(), sessionOptions); ////windows
-    ort_session = new Session(env, modelpath.c_str(), sessionOptions); ////linux
+    m_bmContext = make_shared<BMNNContext>(handle, modelpath.c_str());
 
-    size_t numInputNodes = ort_session->GetInputCount();
-    size_t numOutputNodes = ort_session->GetOutputCount();
-    AllocatorWithDefaultOptions allocator;
-    for (int i = 0; i < numInputNodes; i++)
-    {
-        unique_ptr<char, Ort::detail::AllocatedFree> name = ort_session->GetInputNameAllocated(i, allocator);
-        char* _name = name.get();
-        size_t len = strlen(_name) + 1;
-        char* copy_name = new char[len];
-        memcpy(copy_name, _name, len);
-        input_names.push_back(copy_name);
-        Ort::TypeInfo input_type_info = ort_session->GetInputTypeInfo(i);
-        auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
-        auto input_dims = input_tensor_info.GetShape();
-        input_node_dims.push_back(input_dims);
-    }
-    for (int i = 0; i < numOutputNodes; i++)
-    {
-        unique_ptr<char, Ort::detail::AllocatedFree> name = ort_session->GetOutputNameAllocated(i, allocator);
-        char* _name = name.get();
-        size_t len = strlen(_name) + 1;
-        char* copy_name = new char[len];
-        memcpy(copy_name, _name, len);
-        output_names.push_back(copy_name);
-        Ort::TypeInfo output_type_info = ort_session->GetOutputTypeInfo(i);
-        auto output_tensor_info = output_type_info.GetTensorTypeAndShapeInfo();
-        auto output_dims = output_tensor_info.GetShape();
-        output_node_dims.push_back(output_dims);
-    }
 
-    this->inpHeight = this->input_node_dims[0][2];
-    this->inpWidth = this->input_node_dims[0][3];
+    // 1. get network
+    m_bmNetwork = m_bmContext->network(0);
+
+    m_input_tensor = m_bmNetwork->inputTensor(0);
+    bmrt_tensor(&bm_input_tensor,
+                m_bmContext->bmrt(),
+                m_input_tensor->get_dtype(),
+                *m_input_tensor->get_shape());
+    m_input_tensor->set_device_mem(&bm_input_tensor.device_mem);
+    this->inpHeight = m_input_tensor->get_shape()->dims[2];
+    this->inpWidth = m_input_tensor->get_shape()->dims[3];
     this->conf_thresh = conf_thresh_;
     this->nms_thresh = nms_thresh_;
 
-    grid_c = output_node_dims[0][0];
-    grid_w = output_node_dims[0][1];
-    grid_h = output_node_dims[0][2];
+    auto m_output_tensort = m_bmNetwork->outputTensor(0);
+
+    grid_c = m_output_tensort->get_shape()->dims[0];
+    grid_w = m_output_tensort->get_shape()->dims[1];
+    grid_h = m_output_tensort->get_shape()->dims[2];
+
 }
 
 Mat PE::preprocess(const Mat& video_mat)
@@ -154,18 +139,16 @@ void PE::detect_multi_hot(const Mat& video_mat, vector<ObjectPose> &boxes)
     const int origin_h = video_mat.rows;
     const int origin_w = video_mat.cols;
 
-    std::vector<int64_t> input_img_shape = {1, 3, this->inpHeight, this->inpWidth};
-    Value input_tensor_ = Value::CreateTensor<float>(memory_info_handler, this->input_tensor.data(), this->input_tensor.size(), input_img_shape.data(), input_img_shape.size());
-
-    Ort::RunOptions runOptions;
+    bm_memcpy_s2d(m_bmContext->handle(), bm_input_tensor.device_mem, &input_tensor[0]);
     this->start_time = std::chrono::system_clock::now();
-    vector<Value> ort_outputs = this->ort_session->Run(runOptions, this->input_names.data(), &input_tensor_, this->input_names.size(), this->output_names.data(), this->output_names.size());
+    m_bmNetwork->forward();
     this->end_time = std::chrono::system_clock::now();
     diff = this->end_time - this->start_time;
     cout << "PE 向前推理时间：" << diff.count() << endl;
     diffs.emplace_back(diff.count());
-    const float *pred = ort_outputs[0].GetTensorMutableData<float>();
-    generate_proposal_multi_hot(pred, boxes);
+    std::shared_ptr<BMNNTensor> outputTensor = m_bmNetwork->outputTensor(0);
+    auto output_data = outputTensor->get_cpu_data();
+    generate_proposal_multi_hot(output_data, boxes);
     const int max_hw = max(this->inpHeight, this->inpWidth);
     const float ratio_h = float(origin_h) / max_hw;
     const float ratio_w = float(origin_w) / max_hw;
@@ -189,27 +172,8 @@ void PE::generate_proposal_multi_hot(const float *pred, vector<ObjectPose> &boxe
 {
 
     const int kps_num = (grid_w - 4 - num_class) / 3;
-    /*std::vector<std::vector<float>> table(grid_h, std::vector<float>(grid_w));
-    fstream f("data.csv");
-    for (int i = 0 ; i < grid_h; i ++)
-    {
-        f << i << ",";
-    }
-    f << endl;
-
-    for (int y = 0 ; y < grid_w; y ++)
-    {
-        for (int x = 0; x < grid_h; x ++)
-        {
-            table[x][y] = pred[y * grid_h + x];
-            f << pred[y * grid_h + x] << ",";
-        }
-        f << endl;
-    }*/
-
-
-
     vector<vector<ObjectPose>> generated_result(num_class, vector<ObjectPose>(0));
+    #pragma omp parallel for
     for (int x = 0 ; x < grid_h; x ++)
     {
         for (int y = 0; y < num_class; y++)

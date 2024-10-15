@@ -6,51 +6,19 @@
 #define INSTANCESEGMENTATION_H
 
 
-#include <opencv2/highgui.hpp>
+
 #include <cmath>
-#include <onnxruntime_cxx_api.h>
 #include <string>
 #include <vector>
-
-
+#include "bmruntime_interface.h"
+#include "bmcv_api_ext.h"
+#include "bmlib_runtime.h"
+#include "opencv2/opencv.hpp"
+#include "bm_wrapper.h"
+#include "bmnn_utils.h"
 
 using namespace std;
 using namespace cv;
-using namespace Ort;
-
-template <
-    class B,
-    class A,
-    template <class...> class Container,
-    class... extras>
-void unflat_transfer(Container<B, extras...>& target, const std::vector<A>& source, size_t& index, const std::vector<size_t>& dimensions, size_t dim = 0)
-{
-    target.resize(dimensions[dim]);
-    for(auto& elem : target)
-    {
-        if constexpr(std::is_same<B, A>::value)
-        {
-            elem = source[index++];
-        }
-        else
-        {
-            unflat_transfer(elem, source, index, dimensions, dim + 1);
-        }
-    }
-}
-
-// 重载函数用于将一维向量转为多维容器
-template <
-    class B,
-    template <class...> class Container,
-    class A>
-Container<B> unflat_transfer(const std::vector<A>& source, const std::vector<size_t>& dimensions)
-{
-    Container<B> target;
-    size_t index = 0;
-    unflat_transfer(target, source, index, dimensions);
-    return target;
-}
 
 
 struct ObjectSeg
@@ -82,19 +50,20 @@ class IS
         float nms_thresh;
         float conf_thresh;
 
-        Session* ort_session = nullptr;
 
 
         void generate_proposal(const float *pred, vector<ObjectSeg> &boxes);
-        Env env = Env(ORT_LOGGING_LEVEL_VERBOSE, "IS Instance Segmentation");
 
-        SessionOptions sessionOptions = SessionOptions();
-        const OrtApi& api = Ort::GetApi();
         vector<char *> input_names;
         vector<char *> output_names;
         vector<vector<int64_t>> input_node_dims;  // >=1 outputs
         vector<vector<int64_t>> output_node_dims; // >=1 outputs
-        Ort::MemoryInfo memory_info_handler = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
+
+        std::shared_ptr<BMNNContext> m_bmContext;
+        std::shared_ptr<BMNNNetwork> m_bmNetwork;
+        std::shared_ptr<BMNNTensor>  m_input_tensor;
+        std::shared_ptr<BMNNTensor>  m_output_tensor;
+        bm_tensor_t bm_input_tensor;
 
         const char* labels[3] = {"rail-raised", "rail-track", "unidentified"};
         const int num_class = 3;

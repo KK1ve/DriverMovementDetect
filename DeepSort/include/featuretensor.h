@@ -7,11 +7,10 @@
 //#include <NvInfer.h>
 //#include <NvOnnxParser.h>
 #include "model.hpp"
+#include "bmnn_utils.h"
 #include "datatype.h"
 //#include "cuda_runtime_api.h"
-#include "onnxruntime_cxx_api.h"
 using std::vector;
-using namespace Ort;
 namespace deep_sort
 {
     //using nvinfer1::ILogger;
@@ -28,7 +27,7 @@ namespace deep_sort
         bool getRectsFeature(DETECTIONS& det);
         void loadOnnx(std::string onnxPath);
         //int getResult(float*& buffer);
-        const float* doInference(vector<cv::Mat>& imgMats);
+        vector<DATA_TYPE> doInference(vector<cv::Mat>& imgMats);
 
     private:
         void stream2det(cv::Mat stream, DETECTIONS& det);
@@ -38,20 +37,14 @@ namespace deep_sort
         //nvinfer1::IRuntime* runtime;
         //nvinfer1::ICudaEngine* engine;
         //nvinfer1::IExecutionContext* context;
-        Env env = Env(ORT_LOGGING_LEVEL_VERBOSE, "DeepSort Track");
-        Session* ort_session = nullptr;
-        SessionOptions sessionOptions = SessionOptions();
-        const OrtApi& api = Ort::GetApi();
         const int maxBatchSize;
         const cv::Size imgShape;
         const int featureDim;
-        RunOptions runOptions;
         vector<char *> input_names;
         vector<char *> output_names;
         vector<vector<int64_t>> input_node_dims;  // >=1 outputs
         vector<vector<int64_t>> output_node_dims; // >=1 outputs
         vector<float> input_tensor;
-        Ort::MemoryInfo memory_info_handler = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
 
     private:
         int curBatchSize;
@@ -67,6 +60,13 @@ namespace deep_sort
         float means[3], std[3];
         const std::string inputName, outputName;
         //ILogger* gLogger;
+
+
+        std::shared_ptr<BMNNContext> m_bmContext;
+        std::shared_ptr<BMNNNetwork> m_bmNetwork;
+        std::shared_ptr<BMNNTensor>  m_input_tensor;
+        std::shared_ptr<BMNNTensor>  m_output_tensor;
+        bm_tensor_t bm_input_tensor;
     };
 }
 #endif

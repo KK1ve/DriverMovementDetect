@@ -3,49 +3,27 @@
 //
 #include "../include/InstanceSegmentation.h"
 #include <iostream>
-#include <opencv2/imgproc.hpp>
 
 IS::IS(const string& modelpath, const float nms_thresh_, const float conf_thresh_)
 {
-    sessionOptions.SetGraphOptimizationLevel(ORT_ENABLE_ALL);
-    // ThrowOnError(OrtSessionOptionsAppendExecutionProvider_Tensorrt(sessionOptions, 0));
-    ThrowOnError(OrtSessionOptionsAppendExecutionProvider_CUDA(sessionOptions, 0));
+    // creat handle
+    BMNNHandlePtr handle = make_shared<BMNNHandle>(0);
+    bm_handle_t h = handle->handle();
 
-//    std::wstring widestr = std::wstring(modelpath.begin(), modelpath.end()); ////windows
-//    ort_session = new Session(env, widestr.c_str(), sessionOptions); ////windows
-    ort_session = new Session(env, modelpath.c_str(), sessionOptions); ////linux
+    m_bmContext = make_shared<BMNNContext>(handle, modelpath.c_str());
 
-    size_t numInputNodes = ort_session->GetInputCount();
-    size_t numOutputNodes = ort_session->GetOutputCount();
-    AllocatorWithDefaultOptions allocator;
-    for (int i = 0; i < numInputNodes; i++)
-    {
-        unique_ptr<char, Ort::detail::AllocatedFree> name = ort_session->GetInputNameAllocated(i, allocator);
-        char* _name = name.get();
-        size_t len = strlen(_name) + 1;
-        char* copy_name = new char[len];
-        memcpy(copy_name, _name, len);
-        input_names.push_back(copy_name);
-        Ort::TypeInfo input_type_info = ort_session->GetInputTypeInfo(i);
-        auto input_tensor_info = input_type_info.GetTensorTypeAndShapeInfo();
-        auto input_dims = input_tensor_info.GetShape();
-        input_node_dims.push_back(input_dims);
-    }
-    for (int i = 0; i < numOutputNodes; i++)
-    {
-        unique_ptr<char, Ort::detail::AllocatedFree> name = ort_session->GetOutputNameAllocated(i, allocator);
-        char* _name = name.get();
-        size_t len = strlen(_name) + 1;
-        char* copy_name = new char[len];
-        memcpy(copy_name, _name, len);
-        output_names.push_back(copy_name);
-        Ort::TypeInfo output_type_info = ort_session->GetOutputTypeInfo(i);
-        auto output_tensor_info = output_type_info.GetTensorTypeAndShapeInfo();
-        auto output_dims = output_tensor_info.GetShape();
-        output_node_dims.push_back(output_dims);
-    }
-    this->inpHeight = this->input_node_dims[0][2];
-    this->inpWidth = this->input_node_dims[0][3];
+
+    // 1. get network
+    m_bmNetwork = m_bmContext->network(0);
+
+    m_input_tensor = m_bmNetwork->inputTensor(0);
+    bmrt_tensor(&bm_input_tensor,
+                m_bmContext->bmrt(),
+                m_input_tensor->get_dtype(),
+                *m_input_tensor->get_shape());
+    m_input_tensor->set_device_mem(&bm_input_tensor.device_mem);
+    this->inpHeight = m_input_tensor->get_shape()->dims[2];
+    this->inpWidth = m_input_tensor->get_shape()->dims[3];
     this->conf_thresh = conf_thresh_;
     this->nms_thresh = nms_thresh_;
 }
@@ -53,7 +31,7 @@ IS::IS(const string& modelpath, const float nms_thresh_, const float conf_thresh
 Mat IS::preprocess(const Mat& video_mat)
 {
     Mat resizeimg;
-    resize(video_mat, resizeimg, cv::Size(this->inpHeight, this->inpWidth));
+    resize(video_mat, resizeimg, cv::Size(this->inpWidth, this->inpHeight));
     resizeimg.convertTo(resizeimg, CV_32FC3, 1/255.0);
     return resizeimg;
 }
@@ -70,7 +48,6 @@ void IS::generate_proposal(const float *pred, vector<ObjectSeg> &boxes)
             }
         }
     }*/
-
     for(int i = 0; i < num_class; i ++)
     {
         ObjectSeg object_seg;
@@ -81,13 +58,14 @@ void IS::generate_proposal(const float *pred, vector<ObjectSeg> &boxes)
         boxes.emplace_back(object_seg);
     }
     // cout << "inpHeight: " << inpHeight << " mat_rows: " << boxes[0].region.rows << endl;
+    #pragma omp parallel for
     for (int w = 0; w < inpWidth; w++)
     {
         for(int h = 0; h < inpHeight; h++)
         {
             float _max = FLT_MIN;
-            int _max_index = boxes.size() - 1;
-            for (int c = 0; c < boxes.size(); c ++)
+            int _max_index = 2;
+            for (int c = 0; c < num_class; c ++)
             {
                 int index = c * inpHeight * inpWidth + h * inpWidth + w;
                 if (pred[index] > _max)
@@ -123,18 +101,17 @@ void IS::detect(const Mat& video_mat, vector<ObjectSeg> &boxes)
     memcpy(this->input_tensor.data() + image_area, (float *)bgrChannels[1].data, single_chn_size);
     memcpy(this->input_tensor.data() + 2 * image_area, (float *)bgrChannels[2].data, single_chn_size);
 
-    std::vector<int64_t> input_img_shape = {1, 3, this->inpHeight, this->inpWidth};
-    Value input_tensor_ = Value::CreateTensor<float>(memory_info_handler, this->input_tensor.data(), this->input_tensor.size(), input_img_shape.data(), input_img_shape.size());
-
-    Ort::RunOptions runOptions;
+    bm_memcpy_s2d(m_bmContext->handle(), bm_input_tensor.device_mem, &input_tensor[0]);
     this->start_time = std::chrono::system_clock::now();
-    vector<Value> ort_outputs = this->ort_session->Run(runOptions, this->input_names.data(), &input_tensor_, this->input_names.size(), this->output_names.data(), this->output_names.size());
+    m_bmNetwork->forward();
     this->end_time = std::chrono::system_clock::now();
     diff = this->end_time - this->start_time;
     cout << "向前推理时间：" << diff.count() << endl;
     diffs.emplace_back(diff.count());
-    const float *pred = ort_outputs[0].GetTensorMutableData<float>();
-    generate_proposal(pred, boxes);
+    std::shared_ptr<BMNNTensor> outputTensor = m_bmNetwork->outputTensor(0);
+    auto output_data = outputTensor->get_cpu_data();
+
+    generate_proposal(output_data, boxes);
     for(auto& obj: boxes)
     {
         // cout << video_mat.cols << " " << video_mat.rows << endl;

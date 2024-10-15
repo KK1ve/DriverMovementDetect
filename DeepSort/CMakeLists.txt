@@ -33,16 +33,26 @@ if(NOT EIGEN3_FOUND)
     unset(BUILD_TESTING CACHE)
 endif()
 
+set(FFMPEG_DIR  /opt/sophon/sophon-ffmpeg-latest/lib/cmake)
+find_package(FFMPEG REQUIRED)
+include_directories(${FFMPEG_INCLUDE_DIRS})
+link_directories(${FFMPEG_LIB_DIRS})
+# use opencv
+set(OpenCV_DIR  /opt/sophon/sophon-opencv-latest/lib/cmake/opencv4)
 find_package(OpenCV REQUIRED)
-set(ONNXRUNTIME_DIR "/home/lsy/CPackage/onnxruntime-linux-x64-gpu-1.18.1")
+include_directories(${OpenCV_INCLUDE_DIRS})
+link_directories(${OpenCV_LIB_DIRS})
+# use libbmrt libbmlib
+find_package(libsophon REQUIRED)
+include_directories(${LIBSOPHON_INCLUDE_DIRS})
+link_directories(${LIBSOPHON_LIB_DIRS})
 
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR}/src SRC_DIR)
 
 add_library(${PROJECT_NAME} SHARED
         ${SRC_DIR}
 )
-target_include_directories(${PROJECT_NAME} PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/include "${ONNXRUNTIME_DIR}/include"
-)
-target_link_libraries(${PROJECT_NAME} Eigen3::Eigen ${OpenCV_LIBS} "${ONNXRUNTIME_DIR}/lib/libonnxruntime.so")
+
+target_include_directories(${PROJECT_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include "${CURRENT_DIR}/include")
+target_link_libraries(${PROJECT_NAME} ${FFMPEG_LIBS} Eigen3::Eigen ${OpenCV_LIBS} ${the_libbmlib.so} ${the_libbmrt.so} ${the_libbmcv.so} -lpthread)
 

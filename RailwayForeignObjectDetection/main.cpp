@@ -4,12 +4,10 @@
 #include "include/InstanceSegmentation.h"
 #include <iostream>
 int main(int argc, char* argv[]){
+    IS ISNet(R"(/home/linaro/6A/model_zoo/railtrack_segmentation.bmodel)");
 
-
-    IS ISNet(R"(/home/lsy/CProject/DriverActionDetect/model_zoo/railtrack_segmentation.onnx)");
-
-    const string videopath = R"(/home/lsy/CProject/DriverActionDetect/test-railway-4.mp4)";
-    const string savepath = R"(/home/lsy/CProject/DriverActionDetect/result-railway-4.mp4)";
+    const string videopath = R"(/home/linaro/6A/videos/test-railway-4.mp4)";
+    const string savepath = R"(/home/linaro/6A/videos/result-railway-4.mp4)";
     VideoCapture vcapture(videopath);
     if (!vcapture.isOpened())
     {
@@ -25,8 +23,13 @@ int main(int argc, char* argv[]){
                  cv::VideoWriter::fourcc('m', 'p', '4', 'v'),
                  fps,
                  Size(width, height));
+
+    std::chrono::system_clock::time_point start_time = std::chrono::system_clock::now();
+    std::chrono::system_clock::time_point end_time = std::chrono::system_clock::now();
+    std::chrono::duration<float> diff;
     try
     {
+        int lenas = 40;
         Mat frame;
         while (vcapture.read(frame))
         {
@@ -35,6 +38,16 @@ int main(int argc, char* argv[]){
                 cout << "cv::imread source file failed, " << videopath;
                 return -1;
             }
+            if (lenas -- < 0)
+            {
+                break;
+            }
+
+            end_time = std::chrono::system_clock::now();
+            diff = end_time - start_time;
+            start_time = std::chrono::system_clock::now();
+
+            cout << "Time: " << diff.count() << endl;
 
             // vector<Bbox> boxes;
             // vector<float> det_conf;
@@ -63,7 +76,6 @@ int main(int argc, char* argv[]){
 
     vwriter.release();
     vcapture.release();
-    destroyAllWindows();
     // cout << "向前推理平均值：" << accumulate(begin(TADNet.diffs), end(TADNet.diffs), 0.0) / (float)TADNet.diffs.size() << endl;
 
     return 0;
