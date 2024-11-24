@@ -17,7 +17,7 @@ using namespace cv;
 
 class DWPOSE {
     public:
-        explicit DWPOSE(const string& modelpath, int use_int8 = 0, float nms_thresh_ = 0.5, float conf_thresh_ = 0.6);
+        explicit DWPOSE(const string& modelpath, int _originHeight, int _originWidth, int use_int8 = 0, float nms_thresh_ = 0.5, float conf_thresh_ = 0.6);
         void detect(const std::map<unsigned long, Mat>& track_imgs, vector<ObjectPose> &boxes);
         Mat vis(const Mat& frame, vector<ObjectPose> &boxes);
 
@@ -30,12 +30,15 @@ class DWPOSE {
 
         vector<float> input_tensor;
         Mat preprocess(const Mat& video_mat);
+        int inpBatchSize;
         int inpWidth;
         int inpHeight;
+        int originHeight;
+        int originWidth;
         float nms_thresh;
         float conf_thresh;
 
-        void generate_proposal(const vector<float>& keypoints, vector<ObjectPose> &boxes, int origin_w, int origin_h, int precessed_w, int precessed_h);
+        void generate_proposal(const vector<float>& keypoints, vector<ObjectPose> &boxes);
 
         vector<char *> input_names;
         vector<char *> output_names;
@@ -49,7 +52,7 @@ class DWPOSE {
 
         const vector<float> means = {123.675, 116.28, 103.53};
         const vector<float> stds = {1.0/58.395, 1.0/57.12, 1.0/57.375};
-        const int num_keypoint = 133;
+        int num_keypoint;
 
 
 };

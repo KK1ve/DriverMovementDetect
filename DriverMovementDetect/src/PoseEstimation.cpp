@@ -6,17 +6,6 @@
 #include <iostream>
 #include <fstream>
 
-static bool cmp_score(const ObjectPose& box1, const ObjectPose& box2) {
-    if (box1.prob == box2.prob)
-    {
-        if(box1.rect.x == box2.rect.x)
-        {
-            return box1.rect.y > box2.rect.y;
-        }
-        return box1.rect.x > box2.rect.x;
-    }
-    return box1.prob > box2.prob;
-}
 
 static float get_iou_value(ObjectPose object_pose1, ObjectPose object_pose2)
 {

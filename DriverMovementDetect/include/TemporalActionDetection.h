@@ -39,6 +39,7 @@ class TAD
         vector<float> input_tensor;
         void preprocess(vector<Mat> video_clip);
         Mat preprocess(const Mat& video_mat);
+        int inpBatchSize;
         int inpWidth;
         int inpHeight;
         float nms_thresh;

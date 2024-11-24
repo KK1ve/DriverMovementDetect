@@ -9,88 +9,12 @@
 #include <memory>
 #include <iostream>
 #include <opencv2/imgproc.hpp>
-static bool cmp_score(const ObjectPose& box1, const ObjectPose& box2) {
-    // if (box1.prob == box2.prob)
-    // {
-    //     if(box1.rect.x == box2.rect.x)
-    //     {
-    //         return box1.rect.y > box2.rect.y;
-    //     }
-    //     return box1.rect.x > box2.rect.x;
-    // }
-    return box1.prob > box2.prob;
-}
-
-static inline float sigmoid(float x)
-{
-    return static_cast<float>(1.f / (1.f + exp(-x)));
-}
-
-float GetIoU(const Bbox box1, const Bbox box2)
-{
-    int x1 = std::max(box1.xmin, box2.xmin);
-    int y1 = std::max(box1.ymin, box2.ymin);
-    int x2 = std::min(box1.xmax, box2.xmax);
-    int y2 = std::min(box1.ymax, box2.ymax);
-    int w = std::max(0, x2 - x1);
-    int h = std::max(0, y2 - y1);
-    float over_area = w * h;
-    if (over_area == 0)
-        return 0.0;
-    float union_area = (box1.xmax - box1.xmin) * (box1.ymax - box1.ymin) + (box2.xmax - box2.xmin) * (box2.ymax - box2.ymin) - over_area;
-    return over_area / union_area;
-}
-
-vector<int> multiclass_nms_class_agnostic(std::vector<ObjectPose> boxes, const float nms_thresh)
-{
-    std::sort(boxes.begin(), boxes.end(), cmp_score);
-    const int num_box = boxes.size();
-    std::vector<bool> isSuppressed(num_box, false);
-    for (int i = 0; i < num_box; ++i)
-    {
-        if (isSuppressed[i])
-        {
-            continue;
-        }
-        vector<float> ious(boxes.size());
-
-        #pragma omp parallel for
-        for (int j = i + 1; j < boxes.size(); ++j)
-        {
-            ious[j] = GetIoU(boxes[i].rect, boxes[j].rect);
-        }
-
-        for (int j = i + 1; j < num_box; ++j)
-        {
-            if (isSuppressed[j])
-            {
-                continue;
-            }
-
-            if (ious[j] > nms_thresh)
-            {
-                isSuppressed[j] = true;
-            }
-        }
-    }
-
-    std::vector<int> keep_inds;
-    for (int i = 0; i < isSuppressed.size(); i++)
-    {
-        if (!isSuppressed[i])
-        {
-            keep_inds.emplace_back(i);
-        }
-    }
-    return keep_inds;
-}
 
 
 TAD::TAD(const string& modelpath,const int _origin_h, const int _origin_w, const float nms_thresh_, const float conf_thresh_, const int _rate)
 {
     // creat handle
     BMNNHandlePtr handle = make_shared<BMNNHandle>(0);
-    bm_handle_t h = handle->handle();
 
     m_bmContext = make_shared<BMNNContext>(handle, modelpath.c_str());
 
@@ -105,6 +29,7 @@ TAD::TAD(const string& modelpath,const int _origin_h, const int _origin_w, const
                 *m_input_tensor->get_shape());
     m_input_tensor->set_device_mem(&bm_input_tensor.device_mem);
 
+    this->inpBatchSize = m_input_tensor->get_shape()->dims[0];
     this->len_clip = m_input_tensor->get_shape()->dims[2];
     this->inpHeight = m_input_tensor->get_shape()->dims[3];
     this->inpWidth = m_input_tensor->get_shape()->dims[4];
@@ -139,12 +64,8 @@ TAD::TAD(const string& modelpath,const int _origin_h, const int _origin_w, const
 
 Mat TAD::preprocess(const Mat& video_mat)
 {
-    Mat resizeimg;
-    resize(video_mat, resizeimg, cv::Size(this->inpHeight, this->inpWidth));
+    auto resizeimg = letterbox(video_mat, this->inpHeight, this->inpWidth);
     resizeimg.convertTo(resizeimg, CV_32FC3);
-    // cv::Scalar mean(means[0], means[1], means[2]);
-    // cv::Mat mean_mat(resizeimg.rows, resizeimg.cols, CV_32SC3, mean);
-    // cv::subtract(resizeimg, mean_mat, resizeimg);
     return resizeimg;
 
 }
@@ -245,33 +166,43 @@ void TAD::detect_one_hot(const Mat& input_mat, vector<ObjectPose> &boxes)
     cout << "向前推理时间：" << diff.count() << endl;
     diffs.emplace_back(diff.count());
 
+    auto conf_pred_0 = m_bmNetwork->outputTensor(0);
+    auto conf_pred_1 = m_bmNetwork->outputTensor(1);
+    auto conf_pred_2 = m_bmNetwork->outputTensor(2);
+    auto cls_pred_0 = m_bmNetwork->outputTensor(3);
+    auto cls_pred_1 = m_bmNetwork->outputTensor(4);
+    auto cls_pred_2 = m_bmNetwork->outputTensor(5);
+    auto reg_pred_0 = m_bmNetwork->outputTensor(6);
+    auto reg_pred_1 = m_bmNetwork->outputTensor(7);
+    auto reg_pred_2 = m_bmNetwork->outputTensor(8);
     vector<ObjectPose> _temp_boxes;
-
-    this->generate_proposal_one_hot(this->strides[0], m_bmNetwork->outputTensor(0)->get_cpu_data(),
-        m_bmNetwork->outputTensor(3)->get_cpu_data(), m_bmNetwork->outputTensor(6)->get_cpu_data(), _temp_boxes);
-    this->generate_proposal_one_hot(this->strides[1], m_bmNetwork->outputTensor(1)->get_cpu_data(),
-        m_bmNetwork->outputTensor(4)->get_cpu_data(), m_bmNetwork->outputTensor(7)->get_cpu_data(), _temp_boxes);
-    this->generate_proposal_one_hot(this->strides[2], m_bmNetwork->outputTensor(2)->get_cpu_data(),
-        m_bmNetwork->outputTensor(5)->get_cpu_data(), m_bmNetwork->outputTensor(8)->get_cpu_data(), _temp_boxes);
+    this->generate_proposal_one_hot(this->strides[0], conf_pred_0->get_cpu_data(),
+        cls_pred_0->get_cpu_data(), reg_pred_0->get_cpu_data(), _temp_boxes);
+    this->generate_proposal_one_hot(this->strides[1], conf_pred_1->get_cpu_data(),
+        cls_pred_1->get_cpu_data(), reg_pred_1->get_cpu_data(), _temp_boxes);
+    this->generate_proposal_one_hot(this->strides[2], conf_pred_2->get_cpu_data(),
+        cls_pred_2->get_cpu_data(), reg_pred_2->get_cpu_data(), _temp_boxes);
 
     vector<int> keep_inds = multiclass_nms_class_agnostic(_temp_boxes, this->nms_thresh);
-
-    const int max_hw = max(this->inpHeight, this->inpWidth);
-    const float ratio_h = float(origin_h) / max_hw;
-    const float ratio_w = float(origin_w) / max_hw;
 
 
     for (int ind :keep_inds)
     {
         boxes.emplace_back(_temp_boxes[ind]);
     }
+    const float heightScale = float(inpHeight) / float(origin_h), widthScale = float(inpWidth) / float(origin_w);
+    const float scale = min(heightScale, widthScale);
+    const int padd_w = round((float(inpWidth) - float(origin_w) * scale) / 2.0f);
+    const int padd_h = round((float(inpHeight) - float(origin_h) * scale) / 2.0f);
 
     for(auto& box: boxes)
     {
-        box.rect.x = int((float)box.rect.x * ratio_w);
-        box.rect.y = int((float)box.rect.y * ratio_h);
-        box.rect.width = int((float)box.rect.width * ratio_w - box.rect.x);
-        box.rect.height = int((float)box.rect.height * ratio_h - box.rect.y);
+        box.rect.width = int(float(box.rect.width - box.rect.x) / scale);
+        box.rect.height = int(float(box.rect.height - box.rect.y) / scale);
+        box.rect.x = int(float(box.rect.x - padd_w) / scale);
+        box.rect.y = int(float(box.rect.y - padd_h) / scale);
+
+
         box.rect.x = box.rect.x > origin_w ? origin_w : box.rect.x < 0 ? 0 : box.rect.x;
         box.rect.y = box.rect.y > origin_h ? origin_h : box.rect.y < 0 ? 0 : box.rect.y;
         box.rect.width = box.rect.width > origin_w - box.rect.x ? origin_w - box.rect.x : box.rect.width;
@@ -484,13 +415,13 @@ Mat TAD::vis(const Mat& frame, const vector<ObjectPose>& boxes, const bool show_
                                                                  {0,   255, 0},
                                                                  {0,   255, 0} };
 
-    const int num_points = 18;
 
     cv::Mat res = frame.clone();
+
     for (auto& obj : boxes)
     {
         cv::rectangle(res, obj.rect, { 0, 0, 255 }, 2);
-        string text = format("%s %.1f%% \n", labels[obj.label], obj.prob * 100);
+        string text = format("%s %.1f%% \n", "person", obj.prob * 100);
         // if (obj.label != 0) {
         if (false) {
             text += "infos: \n";
@@ -569,7 +500,7 @@ Mat TAD::vis(const Mat& frame, const vector<ObjectPose>& boxes, const bool show_
         std::vector<float> kps = obj.kps;
         if (!kps.empty())
         {
-            for (int k = 0; k < num_points; k++)
+            for (int k = 0; k < 133; k++)
             {
                 int kps_x= std::round(kps[k * 3]);
                 int kps_y=std::round(kps[k * 3 + 1]);
@@ -577,7 +508,7 @@ Mat TAD::vis(const Mat& frame, const vector<ObjectPose>& boxes, const bool show_
                 if (kps_s > 0.5f)
                 {
                     cv::Scalar kps_color = cv::Scalar(KPS_COLORS[(int)k % 17][0], KPS_COLORS[(int)k % 17][1], KPS_COLORS[(int)k % 17][2]);
-                    cv::circle(res, { kps_x, kps_y }, 5, kps_color, -1);
+                    cv::circle(res, { kps_x, kps_y }, 0, kps_color, 5);
                 }
 
             }

@@ -9,66 +9,6 @@
 #include <memory>
 #include <iostream>
 #include <opencv2/imgproc.hpp>
-static bool cmp_score(const ObjectPose& box1, const ObjectPose& box2) {
-    // if (box1.prob == box2.prob)
-    // {
-    //     if(box1.rect.x == box2.rect.x)
-    //     {
-    //         return box1.rect.y > box2.rect.y;
-    //     }
-    //     return box1.rect.x > box2.rect.x;
-    // }
-    return box1.prob > box2.prob;
-}
-
-static inline float sigmoid(float x)
-{
-    return static_cast<float>(1.f / (1.f + exp(-x)));
-}
-
-std::vector<int> multiclass_nms_class_agnostic(std::vector<ObjectPose> &boxes, const float nms_thresh)
-{
-    std::sort(boxes.begin(), boxes.end(), cmp_score);
-    const int num_box = boxes.size();
-    std::vector<bool> isSuppressed(num_box, false);
-    for (int i = 0; i < num_box; ++i)
-    {
-        if (isSuppressed[i])
-        {
-            continue;
-        }
-        vector<float> ious(boxes.size());
-
-        #pragma omp parallel for
-        for (int j = i + 1; j < boxes.size(); ++j)
-        {
-            ious[j] = GetIoU(boxes[i].rect, boxes[j].rect);
-        }
-
-        for (int j = i + 1; j < num_box; ++j)
-        {
-            if (isSuppressed[j])
-            {
-                continue;
-            }
-
-            if (ious[j] > nms_thresh)
-            {
-                isSuppressed[j] = true;
-            }
-        }
-    }
-
-    std::vector<int> keep_inds;
-    for (int i = 0; i < isSuppressed.size(); i++)
-    {
-        if (!isSuppressed[i])
-        {
-            keep_inds.emplace_back(i);
-        }
-    }
-    return keep_inds;
-}
 
 YOWOV3::YOWOV3(const string& modelpath, const float nms_thresh_, const float conf_thresh_, const int _rate)
 {

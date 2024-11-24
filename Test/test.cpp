@@ -21,14 +21,20 @@ void sad(vector<int> &a)
 }
 
 int main() {
-    vector<float> a = {3,2,1,7};
-    auto argmax_x = std::distance(a.begin(),
-    std::min_element(a.begin(),
-        a.end()));
-    cout << argmax_x << endl;
-    for (auto& z : argmax_x)
+    vector<float> a;
+    a.resize(2);
+    float arr[] = {2.0f, 4.0f, 6.0f, 8.0f};
+    float* z = arr;
+    // std::transform(z, z + 4, a.begin(), [](float x) {
+    //        return x / 2;
+    //    });
+    std::copy(z, z + 4, a.begin());
+
+    for (auto& c : a)
     {
-        cout << z << endl;
+        cout << c << endl;
     }
+
+
 
 }

@@ -270,9 +270,56 @@ int detect(Mat& frame, PE& PENet, TAD& TADNet, byte_track::BYTETracker& BT, Vide
 }
 
 
+void find_the_same_obj(std::vector<shared_ptr<byte_track::STrack>>& track_data, std::vector<ObjectPose>& object_poses)
+{
+    std::vector<std::vector<float>> iouResult(track_data.size(), std::vector<float>(object_poses.size()));
+    for(int i = 0; i < track_data.size(); i ++)
+    {
+        #pragma omp parallel for
+        for(int j = 0;j < object_poses.size(); j ++)
+        {
+            iouResult[i][j] = GetIoU(cv::Rect(track_data[i].get()->getRect().x(), track_data[i].get()->getRect().y(),
+                track_data[i].get()->getRect().width(), track_data[i].get()->getRect().height()), object_poses[j].rect);
+        }
+    }
+    auto _track_data = track_data;
+    auto _object_poses = object_poses;
+    object_poses.clear();
+    while (!iouResult.empty())
+    {
+        float maxVal = -FLT_MAX;
+        int maxRow = -1, maxCol = -1;
+
+        for (int i = 0; i < iouResult.size(); ++i) {
+            for (int j = 0; j < iouResult[i].size(); ++j) {
+                if (iouResult[i][j] > maxVal) {
+                    maxVal = iouResult[i][j];
+                    maxRow = i;
+                    maxCol = j;
+                }
+            }
+        }
+
+        _object_poses[maxCol].track_id = _track_data[maxRow]->getTrackId();
+        object_poses.emplace_back(_object_poses[maxCol]);
+        iouResult.erase(iouResult.begin() + maxRow);
+        _track_data.erase(_track_data.begin() + maxRow);
+        _object_poses.erase(_object_poses.begin() + maxCol);
+        for (auto& i: iouResult)
+        {
+            i.erase(i.begin() + maxCol);
+        }
+
+    }
+
+
+}
+
+
+
 int detect_one(Mat& frame, TAD& TADnet, DWPOSE& DWPOSENet, byte_track::BYTETracker& BT, VideoWriter& vwriter, int width, int height)
 {
-    vector<deep_sort::DetectBox> track_objects;
+    // vector<deep_sort::DetectBox> track_objects;
     vector<ObjectPose> object_poses;
     try{
         // vector<Bbox> boxes;
@@ -310,13 +357,12 @@ int detect_one(Mat& frame, TAD& TADnet, DWPOSE& DWPOSENet, byte_track::BYTETrack
         cout << "TRACK TIME: " << diff.count() << endl;
         if (!track_data.empty())
         {
+            find_the_same_obj(track_data, object_poses);
             std::map<unsigned long, Mat> track_imgs;
-            for (int i = 0; i < track_data.size(); i ++)
+            for (auto & object_pose : object_poses)
             {
-                object_poses[i].track_id = track_data[i]->getTrackId();
-                track_imgs[track_data[i]->getTrackId()] = frame(object_poses[i].rect).clone();
+                track_imgs[object_pose.track_id] = frame(object_pose.rect).clone();
             }
-
             s_time = std::chrono::system_clock::now();
             DWPOSENet.detect(track_imgs, object_poses);
             e_time = std::chrono::system_clock::now();
@@ -344,7 +390,7 @@ int detect_one(Mat& frame, TAD& TADnet, DWPOSE& DWPOSENet, byte_track::BYTETrack
 int main(int argc, char* argv[]) {
 
     const string videopath = R"(/home/linaro/6A/videos/娱越体育运动超人篮球操教学视频.mp4)";
-    const string savepath = R"(/home/linaro/6A/videos/result-action-2.mp4)";
+    const string savepath = R"(/home/linaro/6A/videos/result-action-full-娱越体育运动超人篮球操教学视频.mp4)";
     VideoCapture vcapture(videopath);
     if (!vcapture.isOpened())
     {
@@ -359,7 +405,7 @@ int main(int argc, char* argv[]) {
     // PE PENet(R"(/home/linaro/6A/model_zoo/yolov8s-pose-person-face-no-dynamic.bmodel)", 0.6, 0.6);
 
     // YOWOV3 YOWOV3Net(R"(/home/linaro/6A/model_zoo/yowov3-default.bmodel)");
-    DWPOSE DWPOSENet(R"(/home/linaro/6A/model_zoo/yowo_v2_tiny_ava-int8.bmodel)");
+    DWPOSE DWPOSENet(R"(/home/linaro/6A/model_zoo/dw-mm_ucoco-mod-int8.bmodel)", height, width);
 
     int fps = vcapture.get(cv::CAP_PROP_FPS);
     int video_length = vcapture.get(cv::CAP_PROP_FRAME_COUNT);
@@ -404,7 +450,7 @@ int main(int argc, char* argv[]) {
             return 0;
         }
 
-        if (current_frame_id >= 60) break;
+        // if (current_frame_id >= 60) break;
 
     }
 
