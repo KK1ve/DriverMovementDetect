@@ -156,8 +156,8 @@ void PE::detect_multi_hot(const Mat& video_mat, vector<ObjectPose> &boxes)
     {
         box.rect.x = int((float)box.rect.x * ratio_w);
         box.rect.y = int((float)box.rect.y * ratio_h);
-        box.rect.width = int((float)box.rect.width * ratio_w);
-        box.rect.height = int((float)box.rect.height * ratio_h);
+        box.rect.width = int((float)box.rect.width * ratio_w - box.rect.x);
+        box.rect.height = int((float)box.rect.height * ratio_h - box.rect.y);
         for (int i = 0; i < (grid_w - 4 - num_class) / 3; i ++)
         {
             box.kps[3 * i + 0] = int((float)box.kps[3 * i + 0] * ratio_w);
@@ -256,9 +256,6 @@ void PE::generate_proposal_multi_hot(const float *pred, vector<ObjectPose> &boxe
     }
 }
 
-float euclidean_distance(float x1, float x2, float y1, float y2) {
-    return sqrt((pow(abs(x1 - x2), 2)) + (pow(abs(y1 - y2), 2)));
-}
 
 
 

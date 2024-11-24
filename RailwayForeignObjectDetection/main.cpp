@@ -4,7 +4,8 @@
 #include "include/InstanceSegmentation.h"
 #include <iostream>
 int main(int argc, char* argv[]){
-    IS ISNet(R"(/home/linaro/6A/model_zoo/railtrack_segmentation.bmodel)");
+    IS ISNet(R"(/home/linaro/6A/model_zoo/railtrack_segmentation-int8.bmodel)", 0);
+
 
     const string videopath = R"(/home/linaro/6A/videos/test-railway-4.mp4)";
     const string savepath = R"(/home/linaro/6A/videos/result-railway-4.mp4)";

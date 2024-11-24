@@ -122,7 +122,7 @@ cv::Mat FeatureTensor::preprocess(const cv::Mat& video_mat)
 }
 
 
-std::vector<DATA_TYPE> FeatureTensor::doInference(vector<cv::Mat>& imgMats) {
+std::vector<float> FeatureTensor::doInference(vector<cv::Mat>& imgMats) {
     //cudaMemcpyAsync(buffers[inputIndex], inputBuffer, inputStreamSize * sizeof(float), cudaMemcpyHostToDevice, cudaStream);
     //Dims4 inputDims{curBatchSize, 3, imgShape.height, imgShape.width};
     //context->setBindingDimensions(0, inputDims);

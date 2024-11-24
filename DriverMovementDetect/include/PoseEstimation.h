@@ -11,7 +11,7 @@
 #include "bmnn_utils.h"
 #include <string>
 #include <vector>
-
+#include "utils.h"
 
 
 using namespace std;
@@ -19,16 +19,7 @@ using namespace cv;
 
 
 
-struct ObjectPose
-{
-    // x左上角 y左上角
-    cv::Rect_<float> rect;
-    int label;
-    float prob;
-    std::vector<float> kps;
-    vector<float> action_prob;
-    unsigned long track_id = -1;
-};
+
 class PE
 {
     public:

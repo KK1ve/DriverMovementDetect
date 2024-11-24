@@ -1,11 +1,13 @@
 #include "include/TemporalActionDetection.h"
 #include "include/PoseEstimation.h"
+#include "include/YOLOV3.h"
+#include "include/DWPOSE.h"
 #include <iostream>
 #include <map>
 #include <numeric>
-// #include "BYTETracker.h"
 #include "deepsort.h"
 #include "BYTETracker.h"
+
 using namespace std;
 
 float get_iou_value(ObjectPose& object_pose, deep_sort::DetectBox& detect_box)
@@ -172,8 +174,8 @@ int detect(Mat& frame, PE& PENet, TAD& TADNet, deep_sort::DeepSort& DS, VideoWri
         return 0;
     }
     return 1;
-
 }
+
 int detect(Mat& frame, PE& PENet, TAD& TADNet, byte_track::BYTETracker& BT, VideoWriter& vwriter, int width, int height)
 {
     vector<deep_sort::DetectBox> track_objects;
@@ -268,6 +270,77 @@ int detect(Mat& frame, PE& PENet, TAD& TADNet, byte_track::BYTETracker& BT, Vide
 }
 
 
+int detect_one(Mat& frame, TAD& TADnet, DWPOSE& DWPOSENet, byte_track::BYTETracker& BT, VideoWriter& vwriter, int width, int height)
+{
+    vector<deep_sort::DetectBox> track_objects;
+    vector<ObjectPose> object_poses;
+    try{
+        // vector<Bbox> boxes;
+        // vector<float> det_conf;
+        // vector<vector<float>> cls_conf;
+        // vector<int> keep_inds = TADNet.detect_one_hot(frame, boxes, det_conf, cls_conf); ////keep_inds记录vector里面的有效检测框的序号
+        // Mat dstimg = TADNet.vis_one_hot(frame, boxes, det_conf, cls_conf, keep_inds, vis_thresh);
+
+        auto s_time = std::chrono::system_clock::now();
+        TADnet.detect_one_hot(frame, object_poses);
+        auto e_time = std::chrono::system_clock::now();
+        std::chrono::duration<float> diff = e_time - s_time;
+        cout << "YOWOV3net TIME: " << diff.count() << endl;
+        vector<byte_track::Object> track_objects;
+
+        if (!object_poses.empty())
+        {
+            for(auto& o: object_poses)
+            {
+                if (o.label != 0) continue;
+                byte_track::Rect<float> r(o.rect.x, o.rect.y, o.rect.width, o.rect.height);
+                byte_track::Object ob(r, o.label, o.prob);
+                track_objects.emplace_back(ob);
+
+            }
+        }else
+        {
+            vwriter.write(TADnet.vis(frame, object_poses));
+            return 1;
+        }
+        s_time = std::chrono::system_clock::now();
+        auto track_data = BT.update(track_objects);
+        e_time = std::chrono::system_clock::now();
+        diff = e_time - s_time;
+        cout << "TRACK TIME: " << diff.count() << endl;
+        if (!track_data.empty())
+        {
+            std::map<unsigned long, Mat> track_imgs;
+            for (int i = 0; i < track_data.size(); i ++)
+            {
+                object_poses[i].track_id = track_data[i]->getTrackId();
+                track_imgs[track_data[i]->getTrackId()] = frame(object_poses[i].rect).clone();
+            }
+
+            s_time = std::chrono::system_clock::now();
+            DWPOSENet.detect(track_imgs, object_poses);
+            e_time = std::chrono::system_clock::now();
+            diff = e_time - s_time;
+            cout << "DWPOSE TIME: " << diff.count() << endl;
+        }
+        Mat pedstimg = TADnet.vis(frame, object_poses, true);
+        vwriter.write(pedstimg);
+
+        /*imshow("Detect", dstimg);
+        if (cv::waitKey(1) > 0) {
+            break;
+        };*/
+
+    }catch (exception& e)
+    {
+        cout << e.what() << endl;
+        return 0;
+    }
+    return 1;
+
+}
+
+
 int main(int argc, char* argv[]) {
 
     const string videopath = R"(/home/linaro/6A/videos/娱越体育运动超人篮球操教学视频.mp4)";
@@ -282,17 +355,18 @@ int main(int argc, char* argv[]) {
     int width = vcapture.get(cv::CAP_PROP_FRAME_WIDTH);
 
 
-    TAD TADNet(R"(/home/linaro/6A/model_zoo/x3d_video.bmodel)", height, width);
-    PE PENet(R"(/home/linaro/6A/model_zoo/yolov8s-pose-person-face-no-dynamic.bmodel)", 0.6, 0.6);
+    TAD TADNet(R"(/home/linaro/6A/model_zoo/yowo_v2_tiny_ava-int8.bmodel)", height, width);
+    // PE PENet(R"(/home/linaro/6A/model_zoo/yolov8s-pose-person-face-no-dynamic.bmodel)", 0.6, 0.6);
 
+    // YOWOV3 YOWOV3Net(R"(/home/linaro/6A/model_zoo/yowov3-default.bmodel)");
+    DWPOSE DWPOSENet(R"(/home/linaro/6A/model_zoo/yowo_v2_tiny_ava-int8.bmodel)");
 
     int fps = vcapture.get(cv::CAP_PROP_FPS);
     int video_length = vcapture.get(cv::CAP_PROP_FRAME_COUNT);
 
     // deep_sort::DeepSort DS(R"(/home/linaro/6A/model_zoo/osnet.bmodel)", 128, FEATURE_VECTOR_DIM, 0);
 
-    byte_track::BYTETracker tracker(fps, fps * 2, 0.5, 0.75, 0.9);
-
+    byte_track::BYTETracker tracker(fps, fps * 2, 0.1, 0.2, 0.89);
 
     VideoWriter vwriter;
     vwriter.open(savepath,
@@ -318,7 +392,7 @@ int main(int argc, char* argv[]) {
         cout << "frame id :" << current_frame_id << endl;
         cout << endl;
         start_time = std::chrono::system_clock::now();
-        int ret = detect(frame, PENet, TADNet, tracker, vwriter, width, height);
+        int ret = detect_one(frame, TADNet, DWPOSENet, tracker, vwriter, width, height);
         end_time = std::chrono::system_clock::now();
         diff = end_time - start_time;
 
@@ -330,7 +404,7 @@ int main(int argc, char* argv[]) {
             return 0;
         }
 
-        if (current_frame_id >= 400) break;
+        if (current_frame_id >= 60) break;
 
     }
 

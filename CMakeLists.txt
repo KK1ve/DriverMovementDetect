@@ -11,8 +11,6 @@ set(CURRENT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 # 将当前目录路径定义为预处理器宏
 add_definitions("-DCURRENT_DIR=\"${CURRENT_DIR}\"")
 add_definitions(-DFEATURE_VECTOR_DIM=512)
-add_definitions(-DDATA_TYPE=float)
-
 add_subdirectory("DeepSort")
 add_subdirectory("ByteTrack")
 add_subdirectory("Test")

@@ -9,41 +9,21 @@
 #include <memory>
 #include <iostream>
 #include <opencv2/imgproc.hpp>
+static bool cmp_score(const ObjectPose& box1, const ObjectPose& box2) {
+    // if (box1.prob == box2.prob)
+    // {
+    //     if(box1.rect.x == box2.rect.x)
+    //     {
+    //         return box1.rect.y > box2.rect.y;
+    //     }
+    //     return box1.rect.x > box2.rect.x;
+    // }
+    return box1.prob > box2.prob;
+}
+
 static inline float sigmoid(float x)
 {
     return static_cast<float>(1.f / (1.f + exp(-x)));
-}
-
-std::vector<int> TopKIndex(const std::vector<float> &vec, int topk)
-{
-    std::vector<int> topKIndex;
-    topKIndex.clear();
-
-    std::vector<size_t> vec_index(vec.size());
-    std::iota(vec_index.begin(), vec_index.end(), 0);
-
-    std::sort(vec_index.begin(), vec_index.end(), [&vec](size_t index_1, size_t index_2)
-    { return vec[index_1] > vec[index_2]; });
-
-    int k_num = std::min<int>(vec.size(), topk);
-
-    for (int i = 0; i < k_num; ++i)
-    {
-        topKIndex.emplace_back(vec_index[i]);
-    }
-
-    return topKIndex;
-}
-
-int sub2ind(const int row, const int col, const int cols, const int rows)
-{
-    return row * cols + col;
-}
-
-void ind2sub(const int sub, const int cols, const int rows, int &row, int &col)
-{
-    row = sub / cols;
-    col = sub % cols;
 }
 
 float GetIoU(const Bbox box1, const Bbox box2)
@@ -61,11 +41,10 @@ float GetIoU(const Bbox box1, const Bbox box2)
     return over_area / union_area;
 }
 
-std::vector<int> multiclass_nms_class_agnostic(std::vector<Bbox> boxes, std::vector<float> confidences, const float nms_thresh)
+vector<int> multiclass_nms_class_agnostic(std::vector<ObjectPose> boxes, const float nms_thresh)
 {
-    std::sort(confidences.begin(), confidences.end(), [&confidences](size_t index_1, size_t index_2)
-    { return confidences[index_1] > confidences[index_2]; });
-    const int num_box = confidences.size();
+    std::sort(boxes.begin(), boxes.end(), cmp_score);
+    const int num_box = boxes.size();
     std::vector<bool> isSuppressed(num_box, false);
     for (int i = 0; i < num_box; ++i)
     {
@@ -78,7 +57,7 @@ std::vector<int> multiclass_nms_class_agnostic(std::vector<Bbox> boxes, std::vec
         #pragma omp parallel for
         for (int j = i + 1; j < boxes.size(); ++j)
         {
-            ious[j] = GetIoU(boxes[i], boxes[j]);
+            ious[j] = GetIoU(boxes[i].rect, boxes[j].rect);
         }
 
         for (int j = i + 1; j < num_box; ++j)
@@ -106,7 +85,6 @@ std::vector<int> multiclass_nms_class_agnostic(std::vector<Bbox> boxes, std::vec
     return keep_inds;
 }
 
-bool isZero(int num) { return num == 0; }
 
 TAD::TAD(const string& modelpath,const int _origin_h, const int _origin_w, const float nms_thresh_, const float conf_thresh_, const int _rate)
 {
@@ -134,6 +112,8 @@ TAD::TAD(const string& modelpath,const int _origin_h, const int _origin_w, const
     this->nms_thresh = nms_thresh_;
     this->origin_h = _origin_h;
     this->origin_w = _origin_w;
+    this->rate = _rate;
+
 
 }
 
@@ -161,12 +141,15 @@ Mat TAD::preprocess(const Mat& video_mat)
 {
     Mat resizeimg;
     resize(video_mat, resizeimg, cv::Size(this->inpHeight, this->inpWidth));
-    resizeimg.convertTo(resizeimg, CV_32FC3, 1.0 / 255);
+    resizeimg.convertTo(resizeimg, CV_32FC3);
+    // cv::Scalar mean(means[0], means[1], means[2]);
+    // cv::Mat mean_mat(resizeimg.rows, resizeimg.cols, CV_32SC3, mean);
+    // cv::subtract(resizeimg, mean_mat, resizeimg);
     return resizeimg;
 
 }
 
-void TAD::generate_proposal_one_hot(const int stride, const float *conf_pred, const float *cls_pred, const float *reg_pred, vector<Bbox> &boxes, vector<float> &det_conf, vector<vector<float>> &cls_conf)
+void TAD::generate_proposal_one_hot(const int stride, const float *conf_pred, const float *cls_pred, const float *reg_pred, vector<ObjectPose> &boxes)
 {
     const int feat_h = (int)ceil((float)this->inpHeight / stride);
     const int feat_w = (int)ceil((float)this->inpWidth / stride);
@@ -177,11 +160,9 @@ void TAD::generate_proposal_one_hot(const int stride, const float *conf_pred, co
         conf_pred_i[i] = sigmoid(conf_pred[i]);
     }
     vector<int> topk_inds = TopKIndex(conf_pred_i, this->topk);
-    int length = this->num_class;
 
-    for (int i = 0; i < topk_inds.size(); i++)
+    for (int ind : topk_inds)
     {
-        const int ind = topk_inds[i];
         if (conf_pred_i[ind] > this->conf_thresh)
         {
             int row = 0, col = 0;
@@ -191,15 +172,19 @@ void TAD::generate_proposal_one_hot(const int stride, const float *conf_pred, co
             float cy = (row + 0.5f + reg_pred[ind * 4 + 1]) * stride;
             float w = exp(reg_pred[ind * 4 + 2]) * stride;
             float h = exp(reg_pred[ind * 4 + 3]) * stride;
-            boxes.emplace_back(Bbox{int(cx - 0.5 * w), int(cy - 0.5 * h), int(cx + 0.5 * w), int(cy + 0.5 * h)});
-            det_conf.emplace_back(conf_pred_i[ind]);
+            ObjectPose op;
+            op.label = 0;
+            cv::Rect _rect(int(cx - 0.5 * w), int(cy - 0.5 * h), int(cx + 0.5 * w), int(cy + 0.5 * h));
+            op.rect = _rect;
+            op.prob = conf_pred_i[ind];
 
-            vector<float> cls_conf_i(length);
-            for (int j = 0; j < length; j++)
+            vector<float> cls_conf_i(this->num_class);
+            for (int j = 0; j < this->num_class; j++)
             {
                 cls_conf_i[j] = sigmoid(cls_pred[ind * this->num_class + j]);
             }
-            cls_conf.emplace_back(cls_conf_i);
+            op.action_prob = cls_conf_i;
+            boxes.emplace_back(op);
         }
     }
 }
@@ -209,9 +194,16 @@ void TAD::clear_clips_cache()
     multi_video_clips.clear();
 }
 
-/*vector<int> TAD::detect_one_hot(const Mat& input_mat, vector<Bbox> &boxes, vector<float> &det_conf, vector<vector<float>> &cls_conf)
+void TAD::detect_one_hot(const Mat& input_mat, vector<ObjectPose> &boxes)
 {
+    this->origin_h = input_mat.rows;
+    this->origin_w = input_mat.cols;
     Mat preprocessed_mat = preprocess(input_mat);
+    if (video_clips.size() <= current_rate && video_clips.size() < rate)
+    {
+        vector<Mat> _;
+        video_clips.emplace_back(_);
+    }
     if(video_clips[current_rate].empty())
     {
         for (int i = 0; i < len_clip; i ++)
@@ -226,7 +218,7 @@ void TAD::clear_clips_cache()
 
     }
     const int image_area = this->inpHeight * this->inpWidth;
-    input_tensor.resize(1 * 3 * this->len_clip * image_area);
+    input_tensor.resize(1 * this->len_clip * 3 * image_area);
     size_t single_chn_size = image_area * sizeof(float);
     const int chn_area = this->len_clip * image_area;
     for (int i = 0; i < this->len_clip; i++)
@@ -244,49 +236,48 @@ void TAD::clear_clips_cache()
         current_rate = 0;
     }
 
-    const int origin_h = input_mat.rows;
-    const int origin_w = input_mat.cols;
-    // this->preprocess(video_clip);
+    bm_memcpy_s2d(m_bmContext->handle(), bm_input_tensor.device_mem, &input_tensor[0]);
 
-    std::vector<int64_t> input_img_shape = {1, 3, this->len_clip, this->inpHeight, this->inpWidth};
-    Value input_tensor_ = Value::CreateTensor<float>(memory_info_handler, this->input_tensor.data(), this->input_tensor.size(), input_img_shape.data(), input_img_shape.size());
-
-    Ort::RunOptions runOptions;
     this->start_time = std::chrono::system_clock::now();
-    vector<Value> ort_outputs = this->ort_session->Run(runOptions, this->input_names.data(), &input_tensor_, this->input_names.size(), this->output_names.data(), this->output_names.size());
+    m_bmNetwork->forward();
     this->end_time = std::chrono::system_clock::now();
     diff = this->end_time - this->start_time;
-    // cout << "向前推理时间：" << diff.count() << endl;
+    cout << "向前推理时间：" << diff.count() << endl;
     diffs.emplace_back(diff.count());
-    const float *conf_preds0 = ort_outputs[0].GetTensorMutableData<float>();
-    const float *conf_preds1 = ort_outputs[1].GetTensorMutableData<float>();
-    const float *conf_preds2 = ort_outputs[2].GetTensorMutableData<float>();
-    const float *cls_preds0 = ort_outputs[3].GetTensorMutableData<float>();
-    const float *cls_preds1 = ort_outputs[4].GetTensorMutableData<float>();
-    const float *cls_preds2 = ort_outputs[5].GetTensorMutableData<float>();
-    const float *reg_preds0 = ort_outputs[6].GetTensorMutableData<float>();
-    const float *reg_preds1 = ort_outputs[7].GetTensorMutableData<float>();
-    const float *reg_preds2 = ort_outputs[8].GetTensorMutableData<float>();
 
-    this->generate_proposal_one_hot(this->strides[0], conf_preds0, cls_preds0, reg_preds0, boxes, det_conf, cls_conf);
-    this->generate_proposal_one_hot(this->strides[1], conf_preds1, cls_preds1, reg_preds1, boxes, det_conf, cls_conf);
-    this->generate_proposal_one_hot(this->strides[2], conf_preds2, cls_preds2, reg_preds2, boxes, det_conf, cls_conf);
+    vector<ObjectPose> _temp_boxes;
 
-    vector<int> keep_inds = multiclass_nms_class_agnostic(boxes, det_conf, this->nms_thresh);
+    this->generate_proposal_one_hot(this->strides[0], m_bmNetwork->outputTensor(0)->get_cpu_data(),
+        m_bmNetwork->outputTensor(3)->get_cpu_data(), m_bmNetwork->outputTensor(6)->get_cpu_data(), _temp_boxes);
+    this->generate_proposal_one_hot(this->strides[1], m_bmNetwork->outputTensor(1)->get_cpu_data(),
+        m_bmNetwork->outputTensor(4)->get_cpu_data(), m_bmNetwork->outputTensor(7)->get_cpu_data(), _temp_boxes);
+    this->generate_proposal_one_hot(this->strides[2], m_bmNetwork->outputTensor(2)->get_cpu_data(),
+        m_bmNetwork->outputTensor(5)->get_cpu_data(), m_bmNetwork->outputTensor(8)->get_cpu_data(), _temp_boxes);
+
+    vector<int> keep_inds = multiclass_nms_class_agnostic(_temp_boxes, this->nms_thresh);
 
     const int max_hw = max(this->inpHeight, this->inpWidth);
     const float ratio_h = float(origin_h) / max_hw;
     const float ratio_w = float(origin_w) / max_hw;
-    for (int i = 0; i < keep_inds.size(); i++)
+
+
+    for (int ind :keep_inds)
     {
-        const int ind = keep_inds[i];
-        boxes[ind].xmin = int((float)boxes[ind].xmin * ratio_w);
-        boxes[ind].ymin = int((float)boxes[ind].ymin * ratio_h);
-        boxes[ind].xmax = int((float)boxes[ind].xmax * ratio_w);
-        boxes[ind].ymax = int((float)boxes[ind].ymax * ratio_h);
+        boxes.emplace_back(_temp_boxes[ind]);
     }
-    return keep_inds;
-}*/
+
+    for(auto& box: boxes)
+    {
+        box.rect.x = int((float)box.rect.x * ratio_w);
+        box.rect.y = int((float)box.rect.y * ratio_h);
+        box.rect.width = int((float)box.rect.width * ratio_w - box.rect.x);
+        box.rect.height = int((float)box.rect.height * ratio_h - box.rect.y);
+        box.rect.x = box.rect.x > origin_w ? origin_w : box.rect.x < 0 ? 0 : box.rect.x;
+        box.rect.y = box.rect.y > origin_h ? origin_h : box.rect.y < 0 ? 0 : box.rect.y;
+        box.rect.width = box.rect.width > origin_w - box.rect.x ? origin_w - box.rect.x : box.rect.width;
+        box.rect.height = box.rect.height > origin_h - box.rect.y ? origin_h - box.rect.y : box.rect.height;
+    }
+}
 
 std::map<unsigned long, vector<float>> TAD::detect_multi_hot(const std::map<size_t, Mat>& video_mat_with_track_id)
 {
@@ -324,7 +315,6 @@ std::map<unsigned long, vector<float>> TAD::detect_multi_hot(const std::map<size
     input_tensor.resize(3 * this->len_clip * image_area);
     size_t single_chn_size = image_area * sizeof(float);
     const int chn_area = this->len_clip * image_area;
-    const int batch_area = chn_area * 3;
 
     vector<float> pre_result(batch_size * num_class);
     for(auto &_vm : video_mat_with_track_id)
@@ -361,7 +351,7 @@ std::map<unsigned long, vector<float>> TAD::detect_multi_hot(const std::map<size
 
 
 
-    softmax(pre_result, batch_size, num_class);
+    softmax(&pre_result[0], batch_size, num_class);
 
 
     int _b = -1;
@@ -424,4 +414,175 @@ Mat TAD::vis_one_hot(Mat frame, const vector<Bbox> boxes, const vector<float> de
         }
     }
     return dstimg;
+}
+
+Mat TAD::vis(const Mat& frame, const vector<ObjectPose>& boxes, const bool show_action, const float action_thresh, const float keypoint_thresh)
+{
+    int baseLine = 0;
+    int fontFace = cv::FONT_HERSHEY_SIMPLEX;
+    double fontScale = 0.8;
+    cv::Scalar color(255, 255, 255);
+    int thickness = 2;
+
+
+    const std::vector<std::vector<unsigned int>> KPS_COLORS =
+    { {0,   255, 0},
+      {0,   255, 0},
+      {0,   255, 0},
+      {0,   255, 0},
+      {0,   255, 0},
+      {255, 128, 0},
+      {255, 128, 0},
+      {255, 128, 0},
+      {255, 128, 0},
+      {255, 128, 0},
+      {255, 128, 0},
+      {51,  153, 255},
+      {51,  153, 255},
+      {51,  153, 255},
+      {51,  153, 255},
+      {51,  153, 255},
+      {51,  153, 255} };
+
+    const std::vector<std::vector<unsigned int>> SKELETON = { {16, 14},
+                                                              {14, 12},
+                                                              {17, 15},
+                                                              {15, 13},
+                                                              {12, 13},
+                                                              {6,  12},
+                                                              {7,  13},
+                                                              {6,  7},
+                                                              {6,  8},
+                                                              {7,  9},
+                                                              {8,  10},
+                                                              {9,  11},
+                                                              {2,  3},
+                                                              {1,  2},
+                                                              {1,  3},
+                                                              {2,  4},
+                                                              {3,  5},
+                                                              {4,  6},
+                                                              {5,  7} };
+
+    const std::vector<std::vector<unsigned int>> LIMB_COLORS = { {51,  153, 255},
+                                                                 {51,  153, 255},
+                                                                 {51,  153, 255},
+                                                                 {51,  153, 255},
+                                                                 {255, 51,  255},
+                                                                 {255, 51,  255},
+                                                                 {255, 51,  255},
+                                                                 {255, 128, 0},
+                                                                 {255, 128, 0},
+                                                                 {255, 128, 0},
+                                                                 {255, 128, 0},
+                                                                 {255, 128, 0},
+                                                                 {0,   255, 0},
+                                                                 {0,   255, 0},
+                                                                 {0,   255, 0},
+                                                                 {0,   255, 0},
+                                                                 {0,   255, 0},
+                                                                 {0,   255, 0},
+                                                                 {0,   255, 0} };
+
+    const int num_points = 18;
+
+    cv::Mat res = frame.clone();
+    for (auto& obj : boxes)
+    {
+        cv::rectangle(res, obj.rect, { 0, 0, 255 }, 2);
+        string text = format("%s %.1f%% \n", labels[obj.label], obj.prob * 100);
+        // if (obj.label != 0) {
+        if (false) {
+            text += "infos: \n";
+            std::vector<int> right_eyes = { 0, 2, 4, 6, 8, 10};
+            std::vector<int> left_eyes = { 1, 3, 5, 7, 9, 11};
+            std::vector<int> mouth = { 12, 14, 15, 13, 17, 16};
+
+            float EAR = (euclidean_distance(obj.kps[right_eyes[1] * 3 + 0],
+                obj.kps[right_eyes[5] * 3 + 0], obj.kps[right_eyes[1] * 3 + 1],
+                obj.kps[right_eyes[5] * 3 + 1]) + euclidean_distance(obj.kps[right_eyes[2] * 3 + 0],
+                    obj.kps[right_eyes[4] * 3 + 0], obj.kps[right_eyes[2] * 3 + 1],
+                    obj.kps[right_eyes[4] * 3 + 1])) / (2 * euclidean_distance(obj.kps[right_eyes[0] * 3 + 0],
+                        obj.kps[right_eyes[3] * 3 + 0], obj.kps[right_eyes[0] * 3 + 1],
+                        obj.kps[right_eyes[3] * 3 + 1]));
+            text += format("RIGHT: %.2f\n", EAR);
+
+
+            EAR = (euclidean_distance(obj.kps[left_eyes[1] * 3 + 0],
+                obj.kps[left_eyes[5] * 3 + 0], obj.kps[left_eyes[1] * 3 + 1],
+                obj.kps[left_eyes[5] * 3 + 1]) + euclidean_distance(obj.kps[left_eyes[2] * 3 + 0],
+                    obj.kps[left_eyes[4] * 3 + 0], obj.kps[left_eyes[2] * 3 + 1],
+                    obj.kps[left_eyes[4] * 3 + 1])) / (2 * euclidean_distance(obj.kps[left_eyes[0] * 3 + 0],
+                        obj.kps[left_eyes[3] * 3 + 0], obj.kps[left_eyes[0] * 3 + 1],
+                        obj.kps[left_eyes[3] * 3 + 1]));
+            text += format("LEFT: %.2f\n", EAR);
+
+
+            EAR = (euclidean_distance(obj.kps[mouth[1] * 3 + 0],
+                obj.kps[mouth[5] * 3 + 0], obj.kps[mouth[1] * 3 + 1],
+                obj.kps[mouth[5] * 3 + 1]) + euclidean_distance(obj.kps[mouth[2] * 3 + 0],
+                    obj.kps[mouth[4] * 3 + 0], obj.kps[mouth[2] * 3 + 1],
+                    obj.kps[mouth[4] * 3 + 1])) / (2 * euclidean_distance(obj.kps[mouth[0] * 3 + 0],
+                        obj.kps[mouth[3] * 3 + 0], obj.kps[mouth[0] * 3 + 1],
+                        obj.kps[mouth[3] * 3 + 1]));
+            text += format("MOUTH: %.2f", EAR);
+
+            // cv::Size label_size = cv::getTextSize(face_text, cv::FONT_HERSHEY_SIMPLEX,
+            //     0.4, 1, &baseLine);
+            //
+            // cv::putText(res, face_text, cv::Point(x, y - label_size.height),
+            //     cv::FONT_HERSHEY_SIMPLEX, 0.4, { 255, 255, 255 }, 1);
+
+        }else
+        {
+            text += format("track_id: %u \n", obj.track_id);
+            if(show_action)
+            {
+                for (int i = 0; i < obj.action_prob.size(); i ++)
+                {
+                    if(obj.action_prob[i] > action_thresh)
+                    {
+                        text += format("%s:%.1f%% \n",labels[i], obj.action_prob[i] * 100);
+                    }
+                }
+            }
+        }
+
+        int x = (int)obj.rect.x;
+        int y = (int)obj.rect.y + 1;
+
+        if (y > res.rows)
+            y = res.rows;
+
+        std::istringstream iss(text);
+        std::string line;
+        while (std::getline(iss, line)) {
+            cv::putText(res, line, cv::Point(x, y), fontFace, fontScale, color, thickness);
+            // 计算下一行的 y 坐标，假设行高等于文本的高度加上 baseline
+            if (y + (cv::getTextSize(line, fontFace, fontScale, thickness, &baseLine).height + baseLine) <= res.rows)
+            {
+                y += cv::getTextSize(line, fontFace, fontScale, thickness, &baseLine).height + baseLine;
+            }
+        }
+
+
+        std::vector<float> kps = obj.kps;
+        if (!kps.empty())
+        {
+            for (int k = 0; k < num_points; k++)
+            {
+                int kps_x= std::round(kps[k * 3]);
+                int kps_y=std::round(kps[k * 3 + 1]);
+                float kps_s = kps[k * 3 + 2];
+                if (kps_s > 0.5f)
+                {
+                    cv::Scalar kps_color = cv::Scalar(KPS_COLORS[(int)k % 17][0], KPS_COLORS[(int)k % 17][1], KPS_COLORS[(int)k % 17][2]);
+                    cv::circle(res, { kps_x, kps_y }, 5, kps_color, -1);
+                }
+
+            }
+        }
+
+    }
+    return res;
 }

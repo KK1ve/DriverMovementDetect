@@ -27,7 +27,7 @@ namespace deep_sort
         bool getRectsFeature(DETECTIONS& det);
         void loadOnnx(std::string onnxPath);
         //int getResult(float*& buffer);
-        vector<DATA_TYPE> doInference(vector<cv::Mat>& imgMats);
+        vector<float> doInference(vector<cv::Mat>& imgMats);
 
     private:
         void stream2det(cv::Mat stream, DETECTIONS& det);

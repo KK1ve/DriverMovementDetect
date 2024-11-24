@@ -3,12 +3,11 @@
 //
 #include <iostream>
 #include <vector>
-#include <opencv2/opencv.hpp>
+#include<cmath>
 #include "test.h"
-#include "deepsort.h"
-// 递归函数，将多维vector展平为一维vector
 
-using namespace cv;
+#include <algorithm>
+// 递归函数，将多维vector展平为一维vector
 using namespace std;
 
 void asdc(vector<int>& b)
@@ -22,12 +21,14 @@ void sad(vector<int> &a)
 }
 
 int main() {
-    int m_num_channels = 100;
-    auto m_input_f32 = new float[m_num_channels];
-    float *channel_base = m_input_f32;
-    channel_base += 100;
-    for (int i = 0; i < m_num_channels; i++) {
-        channel_base += 512 * 1024;
+    vector<float> a = {3,2,1,7};
+    auto argmax_x = std::distance(a.begin(),
+    std::min_element(a.begin(),
+        a.end()));
+    cout << argmax_x << endl;
+    for (auto& z : argmax_x)
+    {
+        cout << z << endl;
     }
 
 }

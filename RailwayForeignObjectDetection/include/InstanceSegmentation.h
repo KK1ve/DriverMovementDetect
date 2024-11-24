@@ -16,7 +16,7 @@
 #include "opencv2/opencv.hpp"
 #include "bm_wrapper.h"
 #include "bmnn_utils.h"
-
+#include "utils.h"
 using namespace std;
 using namespace cv;
 
@@ -32,7 +32,7 @@ struct ObjectSeg
 class IS
 {
     public:
-        explicit IS(const string& modelpath, float nms_thresh_ = 0.5, float conf_thresh_ = 0.6);
+        explicit IS(const string& modelpath, int use_int8 = 0, float nms_thresh_ = 0.5, float conf_thresh_ = 0.6);
         void detect(const Mat& video_mat, vector<ObjectSeg> &boxes);
         Mat vis(const Mat& frame, vector<ObjectSeg> &boxes);
 
@@ -44,13 +44,14 @@ class IS
         std::chrono::duration<float> diff;
 
         vector<float> input_tensor;
+        vector<signed char> input_tensor_int8;
         Mat preprocess(const Mat& video_mat);
         int inpWidth;
         int inpHeight;
         float nms_thresh;
         float conf_thresh;
 
-
+        int use_int8;
 
         void generate_proposal(const float *pred, vector<ObjectSeg> &boxes);
 
