@@ -2,8 +2,8 @@
 // Created by 171153 on 2024/8/6.
 //
 
-#ifndef YOWOV3_H
-#define YOWOV3_H
+#ifndef TADV2_H
+#define TADV2_H
 
 #include <fstream>
 #include <map>
@@ -16,10 +16,10 @@ using namespace std;
 
 
 
-class YOWOV3
+class TADV2
 {
     public:
-        YOWOV3(const string& modelpath, float nms_thresh_ = 0.5, float conf_thresh_ = 0.05, int rate = 10);
+        TADV2(const string& modelpath, float nms_thresh_ = 0.5, float conf_thresh_ = 0.05, int rate = 10);
         // std::map<unsigned long, vector<float>> detect_multi_hot(const std::map<size_t, Mat>& video_mat_with_track_id);
         void detect_one_hot(const Mat& video_mat, vector<ObjectPose> &boxes);
         Mat vis_one_hot(const Mat& frame, const vector<ObjectPose>& boxes, bool show_action = true, float action_thresh = 0.05, float keypoint_thresh = 0.5);
@@ -76,4 +76,4 @@ class YOWOV3
 
 
 
-#endif //YOWOV3_H
+#endif //TADV2_H

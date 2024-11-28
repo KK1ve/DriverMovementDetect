@@ -7,16 +7,11 @@
 
 
 
-#include <cmath>
 #include <string>
 #include <vector>
-#include "bmruntime_interface.h"
-#include "bmcv_api_ext.h"
-#include "bmlib_runtime.h"
 #include "opencv2/opencv.hpp"
-#include "bm_wrapper.h"
 #include "bmnn_utils.h"
-#include "utils.h"
+
 using namespace std;
 using namespace cv;
 

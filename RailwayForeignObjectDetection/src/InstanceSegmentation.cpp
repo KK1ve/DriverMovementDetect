@@ -3,6 +3,8 @@
 //
 #include "../include/InstanceSegmentation.h"
 #include <iostream>
+#include <utils.h>
+#include <tbb/parallel_for.h>
 
 IS::IS(const string& modelpath, int use_int8, const float nms_thresh_, const float conf_thresh_)
 {
@@ -66,9 +68,7 @@ void IS::generate_proposal(const float *pred, vector<ObjectSeg> &boxes)
         boxes.emplace_back(object_seg);
     }
     // cout << "inpHeight: " << inpHeight << " mat_rows: " << boxes[0].region.rows << endl;
-#pragma omp parallel for
-    for (int w = 0; w < inpWidth; w++)
-    {
+    tbb::parallel_for(0, inpWidth, 1, [&](int w) {
         for(int h = 0; h < inpHeight; h++)
         {
             float _max = -1000;
@@ -88,7 +88,7 @@ void IS::generate_proposal(const float *pred, vector<ObjectSeg> &boxes)
             boxes[_max_index].region.at<cv::Vec3b>(h, w)[1] = mat_colos[_max_index][1];   // Green
             boxes[_max_index].region.at<cv::Vec3b>(h, w)[2] = mat_colos[_max_index][0];   // Red
         }
-    }
+    });
     /*cout << "width: " << boxes[0].region.cols << " height: " << boxes[0].region.rows << endl;
     imshow("123",boxes[0].region);
     waitKey(1);*/

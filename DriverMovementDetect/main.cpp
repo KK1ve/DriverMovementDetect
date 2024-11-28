@@ -1,6 +1,6 @@
 #include "include/TemporalActionDetection.h"
 #include "include/PoseEstimation.h"
-#include "include/YOLOV3.h"
+#include "include/TemporalActionDetectionV2.h"
 #include "include/DWPOSE.h"
 #include <iostream>
 #include <map>
@@ -332,7 +332,7 @@ int detect_one(Mat& frame, TAD& TADnet, DWPOSE& DWPOSENet, byte_track::BYTETrack
         TADnet.detect_one_hot(frame, object_poses);
         auto e_time = std::chrono::system_clock::now();
         std::chrono::duration<float> diff = e_time - s_time;
-        cout << "YOWOV3net TIME: " << diff.count() << endl;
+        cout << "TAD ACTION PRED TIME: " << diff.count() << endl;
         vector<byte_track::Object> track_objects;
 
         if (!object_poses.empty())
@@ -358,10 +358,10 @@ int detect_one(Mat& frame, TAD& TADnet, DWPOSE& DWPOSENet, byte_track::BYTETrack
         if (!track_data.empty())
         {
             find_the_same_obj(track_data, object_poses);
-            std::map<unsigned long, Mat> track_imgs;
+            std::vector<cv::Mat> track_imgs;
             for (auto & object_pose : object_poses)
             {
-                track_imgs[object_pose.track_id] = frame(object_pose.rect).clone();
+                track_imgs.emplace_back(frame(object_pose.rect).clone());
             }
             s_time = std::chrono::system_clock::now();
             DWPOSENet.detect(track_imgs, object_poses);
@@ -387,10 +387,10 @@ int detect_one(Mat& frame, TAD& TADnet, DWPOSE& DWPOSENet, byte_track::BYTETrack
 }
 
 
-int main(int argc, char* argv[]) {
+int main(int argc, char*  []) {
 
-    const string videopath = R"(/home/linaro/6A/videos/娱越体育运动超人篮球操教学视频.mp4)";
-    const string savepath = R"(/home/linaro/6A/videos/result-action-full-娱越体育运动超人篮球操教学视频.mp4)";
+    const string videopath = R"(/home/linaro/6A/videos/火车司机ppt检测.mp4)";
+    const string savepath = R"(/home/linaro/6A/videos/result-full-火车司机ppt检测.mp4)";
     VideoCapture vcapture(videopath);
     if (!vcapture.isOpened())
     {
@@ -401,11 +401,11 @@ int main(int argc, char* argv[]) {
     int width = vcapture.get(cv::CAP_PROP_FRAME_WIDTH);
 
 
-    TAD TADNet(R"(/home/linaro/6A/model_zoo/yowo_v2_tiny_ava-int8.bmodel)", height, width);
+    TAD TADNet(R"(/home/linaro/6A/model_zoo/yowo_v2_tiny_ava-mix.bmodel)", height, width);
     // PE PENet(R"(/home/linaro/6A/model_zoo/yolov8s-pose-person-face-no-dynamic.bmodel)", 0.6, 0.6);
 
     // YOWOV3 YOWOV3Net(R"(/home/linaro/6A/model_zoo/yowov3-default.bmodel)");
-    DWPOSE DWPOSENet(R"(/home/linaro/6A/model_zoo/dw-mm_ucoco-mod-int8.bmodel)", height, width);
+    DWPOSE DWPOSENet(R"(/home/linaro/6A/model_zoo/dw-mm_ucoco-mod-mix.bmodel)", height, width);
 
     int fps = vcapture.get(cv::CAP_PROP_FPS);
     int video_length = vcapture.get(cv::CAP_PROP_FRAME_COUNT);
@@ -433,7 +433,7 @@ int main(int argc, char* argv[]) {
         if (frame.empty())
         {
             cout << "cv::imread source file failed, " << videopath;
-            return -1;
+            break;
         }
         cout << "frame id :" << current_frame_id << endl;
         cout << endl;
@@ -447,10 +447,10 @@ int main(int argc, char* argv[]) {
         if(ret == 0)
         {
             cout << "ERROR AT: " << current_frame_id << endl;
-            return 0;
+            break;
         }
 
-        // if (current_frame_id >= 60) break;
+        // if (current_frame_id >= 300) break;
 
     }
 

@@ -48,8 +48,8 @@ void DWPOSE::generate_proposal(const vector<float>& keypoints, vector<ObjectPose
 {
     for (int n = 0; n < boxes.size(); n ++){
         const float scale = min(float(inpHeight) / float(boxes[n].rect.height), float(inpWidth) / float(boxes[n].rect.width));
-        int padd_w = round((float(inpWidth) - float(boxes[n].rect.width) * scale) / 2.0f);
-        int padd_h = round((float(inpHeight) - float(boxes[n].rect.height) * scale) / 2.0f);
+        const int padd_w = round((float(inpWidth) - float(boxes[n].rect.width) * scale) / 2.0f);
+        const int padd_h = round((float(inpHeight) - float(boxes[n].rect.height) * scale) / 2.0f);
         for (int i = 0 ; i < num_keypoint; i ++)
         {
             boxes[n].kps.emplace_back((keypoints[n * num_keypoint * 3 + 0 * num_keypoint + i] - padd_w) / scale + boxes[n].rect.x);
@@ -61,12 +61,12 @@ void DWPOSE::generate_proposal(const vector<float>& keypoints, vector<ObjectPose
 }
 
 
-void DWPOSE::detect(const std::map<unsigned long, Mat>& track_imgs, vector<ObjectPose> &boxes)
+void DWPOSE::detect(const std::vector<Mat>& track_imgs, vector<ObjectPose> &boxes)
 {
-    map<unsigned long, Mat> preprocessed_track_imgs;
-    for(auto& item: track_imgs)
+    vector<Mat> preprocessed_track_imgs;
+    for(auto& mat: track_imgs)
     {
-        preprocessed_track_imgs[item.first] = preprocess(item.second);
+        preprocessed_track_imgs.emplace_back(preprocess(mat));
     }
     const int image_area = this->inpHeight * this->inpWidth;
 
@@ -86,9 +86,9 @@ void DWPOSE::detect(const std::map<unsigned long, Mat>& track_imgs, vector<Objec
     {
         i += 1;
         b += 1;
-        cv::subtract(img.second, mean_mat, img.second);
+        cv::subtract(img, mean_mat, img);
         vector<cv::Mat> bgrChannels(3);
-        split(img.second, bgrChannels);
+        split(img, bgrChannels);
         for (int j = 0; j < 3; j ++)
         {
             bgrChannels[j] *= this->stds[j];

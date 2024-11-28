@@ -163,7 +163,7 @@ void TAD::detect_one_hot(const Mat& input_mat, vector<ObjectPose> &boxes)
     m_bmNetwork->forward();
     this->end_time = std::chrono::system_clock::now();
     diff = this->end_time - this->start_time;
-    cout << "向前推理时间：" << diff.count() << endl;
+    cout << "TAD向前推理时间：" << diff.count() << endl;
     diffs.emplace_back(diff.count());
 
     auto conf_pred_0 = m_bmNetwork->outputTensor(0);
@@ -197,8 +197,8 @@ void TAD::detect_one_hot(const Mat& input_mat, vector<ObjectPose> &boxes)
 
     for(auto& box: boxes)
     {
-        box.rect.width = int(float(box.rect.width - box.rect.x) / scale);
-        box.rect.height = int(float(box.rect.height - box.rect.y) / scale);
+        box.rect.width = int(float(box.rect.width - box.rect.x) / scale) + padd_w;
+        box.rect.height = int(float(box.rect.height - box.rect.y) / scale) + padd_h;
         box.rect.x = int(float(box.rect.x - padd_w) / scale);
         box.rect.y = int(float(box.rect.y - padd_h) / scale);
 
@@ -415,6 +415,8 @@ Mat TAD::vis(const Mat& frame, const vector<ObjectPose>& boxes, const bool show_
                                                                  {0,   255, 0},
                                                                  {0,   255, 0} };
 
+    const std::vector<int> keep_index = {7, 10, 11, 53, 66, 67, 68, 78, 77, 14};
+
 
     cv::Mat res = frame.clone();
 
@@ -466,12 +468,12 @@ Mat TAD::vis(const Mat& frame, const vector<ObjectPose>& boxes, const bool show_
 
         }else
         {
-            text += format("track_id: %u \n", obj.track_id);
+            text += format("track id: %u \n", obj.track_id);
             if(show_action)
             {
                 for (int i = 0; i < obj.action_prob.size(); i ++)
                 {
-                    if(obj.action_prob[i] > action_thresh)
+                    if(obj.action_prob[i] > action_thresh && count(keep_index.begin(), keep_index.end(), i))
                     {
                         text += format("%s:%.1f%% \n",labels[i], obj.action_prob[i] * 100);
                     }
@@ -505,9 +507,9 @@ Mat TAD::vis(const Mat& frame, const vector<ObjectPose>& boxes, const bool show_
                 int kps_x= std::round(kps[k * 3]);
                 int kps_y=std::round(kps[k * 3 + 1]);
                 float kps_s = kps[k * 3 + 2];
-                if (kps_s > 0.5f)
+                if (kps_s > keypoint_thresh)
                 {
-                    cv::Scalar kps_color = cv::Scalar(KPS_COLORS[(int)k % 17][0], KPS_COLORS[(int)k % 17][1], KPS_COLORS[(int)k % 17][2]);
+                    cv::Scalar kps_color = cv::Scalar(KPS_COLORS[0][0], KPS_COLORS[0][1], KPS_COLORS[0][2]);
                     cv::circle(res, { kps_x, kps_y }, 0, kps_color, 5);
                 }
 

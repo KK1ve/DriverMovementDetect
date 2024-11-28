@@ -18,7 +18,7 @@ using namespace cv;
 class DWPOSE {
     public:
         explicit DWPOSE(const string& modelpath, int _originHeight, int _originWidth, int use_int8 = 0, float nms_thresh_ = 0.5, float conf_thresh_ = 0.6);
-        void detect(const std::map<unsigned long, Mat>& track_imgs, vector<ObjectPose> &boxes);
+        void detect(const std::vector<Mat>& track_imgs, vector<ObjectPose> &boxes);
         Mat vis(const Mat& frame, vector<ObjectPose> &boxes);
 
         vector<float> diffs;

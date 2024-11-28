@@ -19,11 +19,11 @@ using namespace std;
 class TAD
 {
     public:
-        TAD(const string& modelpath, int _origin_h = 1920, int _origin_w = 1080, float nms_thresh_ = 0.5, float conf_thresh_ = 0.1, int rate = 10);
+        TAD(const string& modelpath, int _origin_h = 1920, int _origin_w = 1080, float nms_thresh_ = 0.5, float conf_thresh_ = 0.1, int rate = 3);
         std::map<unsigned long, vector<float>> detect_multi_hot(const std::map<size_t, Mat>& video_mat_with_track_id);
         void detect_one_hot(const Mat& video_mat, vector<ObjectPose> &boxes);
         Mat vis_one_hot(Mat frame, vector<Bbox> boxes, vector<float> det_conf, vector<vector<float>> cls_conf, vector<int> keep_inds, float vis_thresh);
-        Mat vis(const Mat& frame, const vector<ObjectPose>& boxes, bool show_action = true, float action_thresh = 0.05, float keypoint_thresh = 0.5);
+        Mat vis(const Mat& frame, const vector<ObjectPose>& boxes, bool show_action = true, float action_thresh = 0.03, float keypoint_thresh = 0.4f);
         void clear_clips_cache();
 
         int len_clip;

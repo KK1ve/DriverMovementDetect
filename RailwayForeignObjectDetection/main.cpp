@@ -4,11 +4,11 @@
 #include "include/InstanceSegmentation.h"
 #include <iostream>
 int main(int argc, char* argv[]){
-    IS ISNet(R"(/home/linaro/6A/model_zoo/railtrack_segmentation-int8.bmodel)", 0);
+    IS ISNet(R"(/home/linaro/6A/model_zoo/railtrack_segmentation-mix.bmodel)", 0);
 
 
     const string videopath = R"(/home/linaro/6A/videos/test-railway-4.mp4)";
-    const string savepath = R"(/home/linaro/6A/videos/result-railway-4.mp4)";
+    const string savepath = R"(/home/linaro/6A/videos/result-railway-full-4.mp4)";
     VideoCapture vcapture(videopath);
     if (!vcapture.isOpened())
     {
@@ -30,44 +30,24 @@ int main(int argc, char* argv[]){
     std::chrono::duration<float> diff;
     try
     {
-        int lenas = 40;
         Mat frame;
         while (vcapture.read(frame))
         {
             if (frame.empty())
             {
                 cout << "cv::imread source file failed, " << videopath;
-                return -1;
-            }
-            if (lenas -- < 0)
-            {
                 break;
             }
-
             end_time = std::chrono::system_clock::now();
             diff = end_time - start_time;
             start_time = std::chrono::system_clock::now();
 
             cout << "Time: " << diff.count() << endl;
 
-            // vector<Bbox> boxes;
-            // vector<float> det_conf;
-            // vector<vector<float>> cls_conf;
-            // vector<int> keep_inds = TADNet.detect_multi_hot(frame, boxes, det_conf, cls_conf); ////keep_inds记录vector里面的有效检测框的序号
-            // Mat dstimg = TADNet.vis_multi_hot(frame, boxes, det_conf, cls_conf, keep_inds, vis_thresh);
-
-
             vector<ObjectSeg> object_segs;
             ISNet.detect(frame, object_segs);
             Mat pedstimg = ISNet.vis(frame, object_segs);
-
-
             vwriter.write(pedstimg);
-            /*imshow("Detect", dstimg);
-            if (cv::waitKey(1) > 0) {
-                break;
-            };*/
-
         }
     }catch (exception& e)
     {

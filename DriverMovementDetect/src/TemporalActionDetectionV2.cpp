@@ -2,7 +2,7 @@
 // Created by 171153 on 2024/8/6.
 //
 
-#include "../include/YOLOV3.h"
+#include "../include/TemporalActionDetectionV2.h"
 #include "../include/utils.h"
 #include <numeric>
 #include <algorithm>
@@ -10,7 +10,7 @@
 #include <iostream>
 #include <opencv2/imgproc.hpp>
 
-YOWOV3::YOWOV3(const string& modelpath, const float nms_thresh_, const float conf_thresh_, const int _rate)
+TADV2::TADV2(const string& modelpath, const float nms_thresh_, const float conf_thresh_, const int _rate)
 {
     // creat handle
     BMNNHandlePtr handle = make_shared<BMNNHandle>(0);
@@ -46,27 +46,9 @@ YOWOV3::YOWOV3(const string& modelpath, const float nms_thresh_, const float con
 
 }
 
-/*void YOWOV3::preprocess(vector<Mat> video_clip)
-{
-    const int image_area = this->inpHeight * this->inpWidth;
-    this->input_tensor.resize(1 * 3 * this->len_clip * image_area);
-    size_t single_chn_size = image_area * sizeof(float);
-    const int chn_area = this->len_clip * image_area;
-    for (int i = 0; i < this->len_clip; i++)
-    {
-        Mat resizeimg;
-        resize(video_clip[i], resizeimg, cv::Size(this->inpWidth, this->inpHeight));
-        resizeimg.convertTo(resizeimg, CV_32FC3);
-        vector<cv::Mat> bgrChannels(3);
-        split(resizeimg, bgrChannels);
 
-        memcpy(this->input_tensor.data() + i * image_area, (float *)bgrChannels[0].data, single_chn_size);
-        memcpy(this->input_tensor.data() + chn_area + i * image_area, (float *)bgrChannels[1].data, single_chn_size);
-        memcpy(this->input_tensor.data() + 2 * chn_area + i * image_area, (float *)bgrChannels[2].data, single_chn_size);
-    }
-}*/
 
-Mat YOWOV3::preprocess(const Mat& video_mat)
+Mat TADV2::preprocess(const Mat& video_mat)
 {
     Mat resizeimg;
     resize(video_mat, resizeimg, cv::Size(this->inpHeight, this->inpWidth));
@@ -78,7 +60,7 @@ Mat YOWOV3::preprocess(const Mat& video_mat)
 
 }
 
-void YOWOV3::generate_proposal_one_hot(const float *pred, vector<ObjectPose> &boxes, int origin_w, int origin_h, int precessed_w, int precessed_h)
+void TADV2::generate_proposal_one_hot(const float *pred, vector<ObjectPose> &boxes, int origin_w, int origin_h, int precessed_w, int precessed_h)
 {
     int batch_size = m_output_tensor->get_shape()->dims[0];
     int K = m_output_tensor->get_shape()->dims[1];
@@ -128,12 +110,12 @@ void YOWOV3::generate_proposal_one_hot(const float *pred, vector<ObjectPose> &bo
     }
 }
 
-void YOWOV3::clear_clips_cache()
+void TADV2::clear_clips_cache()
 {
     multi_video_clips.clear();
 }
 
-void YOWOV3::detect_one_hot(const Mat& input_mat, vector<ObjectPose> &boxes)
+void TADV2::detect_one_hot(const Mat& input_mat, vector<ObjectPose> &boxes)
 {
     this->origin_h = input_mat.rows;
     this->origin_w = input_mat.cols;
@@ -191,7 +173,7 @@ void YOWOV3::detect_one_hot(const Mat& input_mat, vector<ObjectPose> &boxes)
 
 }
 
-Mat YOWOV3::vis_one_hot(const Mat& frame, const vector<ObjectPose>& boxes, const bool show_action, const float action_thresh, const float keypoint_thresh)
+Mat TADV2::vis_one_hot(const Mat& frame, const vector<ObjectPose>& boxes, const bool show_action, const float action_thresh, const float keypoint_thresh)
 {
     int baseLine = 0;
     int fontFace = cv::FONT_HERSHEY_SIMPLEX;

@@ -62,8 +62,8 @@ static cv::Mat un_letterbox(const cv::Mat &src, int h, int w)
     const int tar_w = src.cols;
     const int tar_h = src.rows;
     const float r = std::min(float(tar_h) / h, float(tar_w) / w);
-    const int inside_w = round(h * r);
-    const int inside_h = round(w * r);
+    const int inside_w = round(float(w) * r);
+    const int inside_h = round(float(h) * r);
     int padd_w = tar_w - inside_w;
     int padd_h = tar_h - inside_h;
 
