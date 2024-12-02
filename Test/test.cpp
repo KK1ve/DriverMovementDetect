@@ -1,40 +1,42 @@
-//
-// Created by 171153 on 2024/8/7.
-//
+#include <tbb/flow_graph.h>
 #include <iostream>
 #include <vector>
-#include<cmath>
-#include "test.h"
-
 #include <algorithm>
-// 递归函数，将多维vector展平为一维vector
-using namespace std;
-
-void asdc(vector<int>& b)
-{
-    b.emplace_back(1);
-}
-
-void sad(vector<int> &a)
-{
-    asdc(a);
-}
 
 int main() {
-    vector<float> a;
-    a.resize(2);
-    float arr[] = {2.0f, 4.0f, 6.0f, 8.0f};
-    float* z = arr;
-    // std::transform(z, z + 4, a.begin(), [](float x) {
-    //        return x / 2;
-    //    });
-    std::copy(z, z + 4, a.begin());
+    tbb::flow::graph g;
 
-    for (auto& c : a)
-    {
-        cout << c << endl;
-    }
+    tbb::flow::buffer_node<int> buffer(g);
 
+    // 插入数据
+    buffer.try_put(10);
+    buffer.try_put(25);
+    buffer.try_put(15);
+    buffer.try_put(35);
 
+    // 按需取出元素
+    tbb::flow::function_node<void> filter_node(
+        g, tbb::flow::serial, [&]() {
+            std::vector<int> elements;
+            int item;
 
+            // 获取所有数据
+            while (buffer.try_get(item)) {
+                elements.push_back(item);
+            }
+
+            // 筛选大于20的元素
+            for (auto& elem : elements) {
+                if (elem > 20) {
+                    std::cout << "Filtered element: " << elem << std::endl;
+                } else {
+                    // 将未满足条件的数据重新放回缓冲区
+                    buffer.try_put(elem);
+                }
+            }
+        });
+
+    g.wait_for_all();
+
+    return 0;
 }

@@ -38,11 +38,7 @@ int main(int argc, char* argv[]){
                 cout << "cv::imread source file failed, " << videopath;
                 break;
             }
-            end_time = std::chrono::system_clock::now();
-            diff = end_time - start_time;
-            start_time = std::chrono::system_clock::now();
 
-            cout << "Time: " << diff.count() << endl;
 
             vector<ObjectSeg> object_segs;
             ISNet.detect(frame, object_segs);
@@ -57,6 +53,12 @@ int main(int argc, char* argv[]){
 
     vwriter.release();
     vcapture.release();
+
+    end_time = std::chrono::system_clock::now();
+    diff = end_time - start_time;
+    start_time = std::chrono::system_clock::now();
+
+    cout << "spend all time: " << diff.count() << endl;
     // cout << "向前推理平均值：" << accumulate(begin(TADNet.diffs), end(TADNet.diffs), 0.0) / (float)TADNet.diffs.size() << endl;
 
     return 0;
