@@ -37,7 +37,7 @@ std::vector<byte_track::BYTETracker::STrackPtr> byte_track::BYTETracker::update(
 
     for (const auto &object : objects)
     {
-        const auto strack = std::make_shared<STrack>(object.rect, object.prob);
+        const auto strack = std::make_shared<STrack>(object.rect, object.prob, object.action);
         if (object.prob >= track_thresh_)
         {
             det_stracks.push_back(strack);

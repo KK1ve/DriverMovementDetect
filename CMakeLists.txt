@@ -17,5 +17,6 @@ add_subdirectory("Test")
 add_subdirectory("DriverMovementDetect")
 add_subdirectory("RailwayForeignObjectDetection" )
 add_subdirectory("RailwayForeignObjectDetectionRelease" )
+add_subdirectory("DriverMovementDetectRelease" )
 
 

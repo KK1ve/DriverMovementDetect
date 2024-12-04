@@ -17,7 +17,7 @@ enum class STrackState {
 class STrack
 {
 public:
-    STrack(const Rect<float>& rect, const float& score);
+    STrack(const Rect<float>& rect, const float& score,  const std::vector<float>& kps);
     ~STrack();
 
     const Rect<float>& getRect() const;
@@ -46,6 +46,7 @@ private:
 
     Rect<float> rect_;
     STrackState state_;
+    std::vector<float> actions;
 
     bool is_activated_;
     float score_;

@@ -200,7 +200,7 @@ int detect(Mat& frame, PE& PENet, TAD& TADNet, byte_track::BYTETracker& BT, Vide
             {
                 if (o.label != 0) continue;
                 byte_track::Rect<float> r(o.rect.x, o.rect.y, o.rect.width, o.rect.height);
-                byte_track::Object ob(r, o.label, o.prob);
+                byte_track::Object ob(r, o.label, o.prob, o.action_prob);
                 track_objects.emplace_back(ob);
 
             }
@@ -341,7 +341,7 @@ int detect_one(Mat& frame, TAD& TADnet, DWPOSE& DWPOSENet, byte_track::BYTETrack
             {
                 if (o.label != 0) continue;
                 byte_track::Rect<float> r(o.rect.x, o.rect.y, o.rect.width, o.rect.height);
-                byte_track::Object ob(r, o.label, o.prob);
+                byte_track::Object ob(r, o.label, o.prob, o.action_prob);
                 track_objects.emplace_back(ob);
 
             }

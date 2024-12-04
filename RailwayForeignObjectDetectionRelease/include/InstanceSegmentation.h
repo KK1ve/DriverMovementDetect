@@ -10,17 +10,11 @@
 #include "opencv2/opencv.hpp"
 #include "bmnn_utils.h"
 #include <tbb/concurrent_vector.h>
+#include <utils.h>
 
 using namespace std;
 using namespace cv;
 
-
-struct ObjectSeg
-{
-    Mat region;
-    int label;
-    string label_name;
-};
 
 
 class IS
@@ -29,18 +23,18 @@ class IS
         explicit IS(const string& modelpath, int use_int8 = 0, float nms_thresh_ = 0.5, float conf_thresh_ = 0.6);
         // tuple [frame_id, last_step_result, origin_mat]
 
-        std::tuple<unsigned long, std::vector<float>, Mat> pre_process(std::tuple<unsigned long, Mat>& mat);
-        std::tuple<unsigned long, std::shared_ptr<BMNNTensor>, Mat> detect(std::tuple<unsigned long, std::vector<float>, Mat>& input_vector);
-        std::tuple<unsigned long, vector<ObjectSeg>, Mat> post_process(std::tuple<unsigned long, std::shared_ptr<BMNNTensor>, Mat>& pred);
-        std::tuple<unsigned long, Mat, Mat> vis(std::tuple<unsigned long, vector<ObjectSeg>, Mat>& boxes);
+        CommonResultSeg pre_process(CommonResultSeg& input);
+        CommonResultSeg detect(CommonResultSeg& input);
+        CommonResultSeg post_process(CommonResultSeg& input);
+        CommonResultSeg vis(CommonResultSeg& input);
 
 
     private:
         int batchSize;
         int inpWidth;
         int inpHeight;
-        float nms_thresh;
-        float conf_thresh;
+        float nmsThresh;
+        float confThresh;
 
         void generateProposal(const float *pred, vector<ObjectSeg> &boxes);
 

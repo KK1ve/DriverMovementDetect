@@ -6,17 +6,19 @@
 #define UTILS_H
 
 
+#include <bmnn_utils.h>
 #include <numeric>
-
 #include "opencv2/opencv.hpp"
 #include "vector"
-typedef struct
+#define SEG SEGMENTATION
+
+struct ObjectSeg
 {
-    int xmin;
-    int ymin;
-    int xmax;
-    int ymax;
-} Bbox;
+    cv::Mat region;
+    int label;
+    std::string label_name;
+};
+
 
 struct ObjectPose
 {
@@ -28,6 +30,41 @@ struct ObjectPose
     std::vector<float> action_prob;
     unsigned long track_id = -1;
 };
+
+
+struct CommonResultSeg
+{
+    unsigned long frame_index;
+    cv::Mat origin_mat;
+    cv::Mat processed_mat;
+    std::vector<ObjectSeg> object_segs;
+    std::vector<float> float_vector;
+    std::shared_ptr<BMNNTensor> bmnn_tensor;
+    // std::chrono::system_clock::time_point start_time; // TODO CAN BE DELETE
+};
+
+#if (SEG != 1)
+#include <STrack.h>
+struct CommonResultPose
+{
+    unsigned long frame_index;
+    cv::Mat origin_mat;
+    cv::Mat processed_mat;
+    std::vector<ObjectPose> object_poses;
+    std::vector<float> float_vector;
+    std::shared_ptr<BMNNTensor> bmnn_tensor;
+    std::vector<std::shared_ptr<byte_track::STrack>> track_vector;
+    // std::chrono::system_clock::time_point start_time; // TODO CAN BE DELETE
+};
+#endif
+
+typedef struct
+{
+    int xmin;
+    int ymin;
+    int xmax;
+    int ymax;
+} Bbox;
 
 static float euclidean_distance(float x1, float x2, float y1, float y2) {
     return sqrt((pow(abs(x1 - x2), 2)) + (pow(abs(y1 - y2), 2)));

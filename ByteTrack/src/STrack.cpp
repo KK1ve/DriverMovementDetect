@@ -2,11 +2,12 @@
 
 #include <cstddef>
 
-byte_track::STrack::STrack(const Rect<float>& rect, const float& score) :
+byte_track::STrack::STrack(const Rect<float>& rect, const float& score, const std::vector<float>& actions) :
     kalman_filter_(),
     mean_(),
     covariance_(),
     rect_(rect),
+    actions(actions),
     state_(STrackState::New),
     is_activated_(false),
     score_(score),
@@ -86,6 +87,7 @@ void byte_track::STrack::reActivate(const STrack &new_track, const size_t &frame
     state_ = STrackState::Tracked;
     is_activated_ = true;
     score_ = new_track.getScore();
+    actions = new_track.actions;
     if (0 <= new_track_id)
     {
         track_id_ = new_track_id;
@@ -112,6 +114,7 @@ void byte_track::STrack::update(const STrack &new_track, const size_t &frame_id)
     state_ = STrackState::Tracked;
     is_activated_ = true;
     score_ = new_track.getScore();
+    actions = new_track.actions;
     frame_id_ = frame_id;
     tracklet_len_++;
 }

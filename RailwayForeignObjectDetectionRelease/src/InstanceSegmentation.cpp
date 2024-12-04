@@ -26,8 +26,8 @@ IS::IS(const string& modelpath, int use_int8, const float nms_thresh_, const flo
     batchSize = m_input_tensor->get_shape()->dims[0];
     this->inpHeight = m_input_tensor->get_shape()->dims[2];
     this->inpWidth = m_input_tensor->get_shape()->dims[3];
-    this->conf_thresh = conf_thresh_;
-    this->nms_thresh = nms_thresh_;
+    this->confThresh = conf_thresh_;
+    this->nmsThresh = nms_thresh_;
 
 
 }
@@ -45,7 +45,7 @@ void IS::generateProposal(const float *pred, vector<ObjectSeg> &boxes)
         boxes.emplace_back(object_seg);
     }
     // cout << "inpHeight: " << inpHeight << " mat_rows: " << boxes[0].region.rows << endl;
-    for(int w = 0; w < inpWidth; w ++ ){
+    tbb::parallel_for(0, inpWidth, 1, [&](int w) {
         for(int h = 0; h < inpHeight; h++)
         {
             float _max = -1000;
@@ -65,7 +65,7 @@ void IS::generateProposal(const float *pred, vector<ObjectSeg> &boxes)
             boxes[_max_index].region.at<cv::Vec3b>(h, w)[1] = matColos[_max_index][1];   // Green
             boxes[_max_index].region.at<cv::Vec3b>(h, w)[2] = matColos[_max_index][0];   // Red
         }
-    }
+    });
     /*cout << "width: " << boxes[0].region.cols << " height: " << boxes[0].region.rows << endl;
     imshow("123",boxes[0].region);
     waitKey(1);*/
@@ -76,50 +76,67 @@ void IS::generateProposal(const float *pred, vector<ObjectSeg> &boxes)
 
 }
 
-std::tuple<unsigned long, std::vector<float>, Mat> IS::pre_process(std::tuple<unsigned long, Mat>& mat)
+CommonResultSeg IS::pre_process(CommonResultSeg& input)
 {
     const int image_area = this->inpHeight * this->inpWidth;
     vector<cv::Mat> bgrChannels(3);
-    Mat result_mat = letterbox(std::get<1>(mat), this->inpHeight, this->inpWidth);
+    Mat result_mat = letterbox(input.origin_mat, this->inpHeight, this->inpWidth);
     result_mat.convertTo(result_mat, CV_32FC3, 1.0 / 255);
     vector<float> input_tensor;
     input_tensor.resize(1 * 3 * image_area);
     size_t single_chn_size = image_area * sizeof(float);
     split(result_mat, bgrChannels);
-    memcpy(input_tensor.data(), bgrChannels[0].data, single_chn_size);
-    memcpy(input_tensor.data() + image_area, bgrChannels[1].data, single_chn_size);
-    memcpy(input_tensor.data() + 2 * image_area, bgrChannels[2].data, single_chn_size);
-    std::tuple<unsigned long, std::vector<float>, Mat> return_result(std::get<0>(mat), input_tensor, std::get<1>(mat));
-    return return_result;
+    tbb::parallel_for(0, 3, 1, [&](int j)
+    {
+        memcpy(input_tensor.data() + j * image_area, (float *)bgrChannels[j].data, single_chn_size);
+    });
+    // memcpy(input_tensor.data(), bgrChannels[0].data, single_chn_size);
+    // memcpy(input_tensor.data() + image_area, bgrChannels[1].data, single_chn_size);
+    // memcpy(input_tensor.data() + 2 * image_area, bgrChannels[2].data, single_chn_size);
+    CommonResultSeg result(input);
+    result.float_vector = input_tensor;
+    return result;
 }
 
-std::tuple<unsigned long, std::shared_ptr<BMNNTensor>, Mat> IS::detect(std::tuple<unsigned long, std::vector<float>, Mat>& input_vector)
+CommonResultSeg IS::detect(CommonResultSeg& input)
 {
-    bm_memcpy_s2d(mBMContext->handle(), bmInputTensor.device_mem, &std::get<1>(input_vector)[0]);
+    if(input.frame_index==7)
+    {
+        input.float_vector = vector<float>{};
+    }
+    bm_memcpy_s2d(mBMContext->handle(), bmInputTensor.device_mem, input.float_vector.data());
     mBMNetwork->forward();
-    std::shared_ptr<BMNNTensor> outputTensor = mBMNetwork->outputTensor(0);
-    std::tuple<unsigned long, std::shared_ptr<BMNNTensor>, Mat> return_result(std::get<0>(input_vector), outputTensor, std::get<2>(input_vector));
-    return return_result;
+    const auto outputTensor = mBMNetwork->outputTensor(0);
+    CommonResultSeg result(input);
+    result.bmnn_tensor = outputTensor;
+    return result;
 }
 
-std::tuple<unsigned long, vector<ObjectSeg>, Mat> IS::post_process(std::tuple<unsigned long, std::shared_ptr<BMNNTensor>, Mat>& pred)
+CommonResultSeg IS::post_process(CommonResultSeg& input)
 {
     std::vector<ObjectSeg> object_segs;
-    generateProposal(std::get<1>(pred)->get_cpu_data(), object_segs);
-    for(auto& obj: object_segs)
+    generateProposal(input.bmnn_tensor->get_cpu_data(), object_segs);
+    const int last = static_cast<int>(object_segs.size());
+    tbb::parallel_for(0, last, 1, [&](const int i)
     {
-        obj.region = un_letterbox(obj.region, std::get<2>(pred).rows, std::get<2>(pred).cols);
-    }
-    std::tuple<unsigned long, vector<ObjectSeg>, Mat> return_result(std::get<0>(pred), object_segs, std::get<2>(pred));
-    return return_result;
+        object_segs[i].region = un_letterbox(object_segs[i].region, input.origin_mat.rows, input.origin_mat.cols);
+    });
+    // for(auto& obj: object_segs)
+    // {
+    //     obj.region = un_letterbox(obj.region, input.origin_mat.rows, input.origin_mat.cols);
+    // }
+    CommonResultSeg result(input);
+    result.object_segs = object_segs;
+    return result;
 }
-std::tuple<unsigned long, Mat, Mat> IS::vis(std::tuple<unsigned long, vector<ObjectSeg>, Mat>& boxes)
+CommonResultSeg IS::vis(CommonResultSeg& input)
 {
-    Mat result_mat = std::get<2>(boxes).clone();
-    for(auto& obj : std::get<1>(boxes))
+    Mat result_mat = input.origin_mat.clone();
+    for(auto& obj : input.object_segs)
     {
         addWeighted(result_mat, 1, obj.region, 1, 1, result_mat);
     }
-    std::tuple<unsigned long, Mat, Mat> return_result(std::get<0>(boxes), result_mat, std::get<2>(boxes));
-    return return_result;
+    CommonResultSeg result(input);
+    result.processed_mat = result_mat;
+    return result;
 }

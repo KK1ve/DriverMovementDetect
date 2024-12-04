@@ -11,17 +11,10 @@
 #include <vector>
 #include "opencv2/opencv.hpp"
 #include "bmnn_utils.h"
-
+#include <utils.h>
 using namespace std;
 using namespace cv;
 
-
-struct ObjectSeg
-{
-    Mat region;
-    int label;
-    string label_name;
-};
 
 
 class IS
