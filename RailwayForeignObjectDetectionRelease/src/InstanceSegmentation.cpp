@@ -33,7 +33,7 @@ IS::IS(const string& modelpath, int use_int8, const float nms_thresh_, const flo
 }
 
 
-void IS::generateProposal(const float *pred, vector<ObjectSeg> &boxes)
+void IS::generateProposal(const vector<float> pred, vector<ObjectSeg> &boxes)
 {
     for(int i = 0; i < numClass; i ++)
     {
@@ -45,27 +45,27 @@ void IS::generateProposal(const float *pred, vector<ObjectSeg> &boxes)
         boxes.emplace_back(object_seg);
     }
     // cout << "inpHeight: " << inpHeight << " mat_rows: " << boxes[0].region.rows << endl;
-    tbb::parallel_for(0, inpWidth, 1, [&](int w) {
+    for(int w = 0; w < inpWidth; w++){
         for(int h = 0; h < inpHeight; h++)
         {
-            float _max = -1000;
+            float _max = -FLT_MAX;
             int _max_index = 2;
             for (int c = 0; c < numClass; c ++)
             {
-                int index = c * inpHeight * inpWidth + h * inpWidth + w;
-
+                const int index = c * inpHeight * inpWidth + h * inpWidth + w;
                 if (pred[index] > _max)
                 {
                     _max = pred[index];
                     _max_index = c;
                 }
             }
+            if (_max_index == 2) continue;
             // cout << "w: " << w << " h: " << h << endl;
             boxes[_max_index].region.at<cv::Vec3b>(h, w)[0] = matColos[_max_index][2]; // Blue
             boxes[_max_index].region.at<cv::Vec3b>(h, w)[1] = matColos[_max_index][1];   // Green
             boxes[_max_index].region.at<cv::Vec3b>(h, w)[2] = matColos[_max_index][0];   // Red
         }
-    });
+    }
     /*cout << "width: " << boxes[0].region.cols << " height: " << boxes[0].region.rows << endl;
     imshow("123",boxes[0].region);
     waitKey(1);*/
@@ -86,13 +86,9 @@ CommonResultSeg IS::pre_process(CommonResultSeg& input)
     input_tensor.resize(1 * 3 * image_area);
     size_t single_chn_size = image_area * sizeof(float);
     split(result_mat, bgrChannels);
-    tbb::parallel_for(0, 3, 1, [&](int j)
-    {
-        memcpy(input_tensor.data() + j * image_area, (float *)bgrChannels[j].data, single_chn_size);
-    });
-    // memcpy(input_tensor.data(), bgrChannels[0].data, single_chn_size);
-    // memcpy(input_tensor.data() + image_area, bgrChannels[1].data, single_chn_size);
-    // memcpy(input_tensor.data() + 2 * image_area, bgrChannels[2].data, single_chn_size);
+    memcpy(input_tensor.data(), bgrChannels[0].data, single_chn_size);
+    memcpy(input_tensor.data() + image_area, bgrChannels[1].data, single_chn_size);
+    memcpy(input_tensor.data() + 2 * image_area, bgrChannels[2].data, single_chn_size);
     CommonResultSeg result(input);
     result.float_vector = input_tensor;
     return result;
@@ -100,31 +96,27 @@ CommonResultSeg IS::pre_process(CommonResultSeg& input)
 
 CommonResultSeg IS::detect(CommonResultSeg& input)
 {
-    if(input.frame_index==7)
-    {
-        input.float_vector = vector<float>{};
-    }
     bm_memcpy_s2d(mBMContext->handle(), bmInputTensor.device_mem, input.float_vector.data());
     mBMNetwork->forward();
     const auto outputTensor = mBMNetwork->outputTensor(0);
+    const auto pred = outputTensor->get_cpu_data();
+    vector<float> output;
+    int size = this->batchSize * numClass * this->inpHeight * this->inpWidth;
+    output.resize(size);
+    memcpy(output.data(), pred, size * sizeof(float));
     CommonResultSeg result(input);
-    result.bmnn_tensor = outputTensor;
+    result.float_vector = output;
     return result;
 }
 
 CommonResultSeg IS::post_process(CommonResultSeg& input)
 {
     std::vector<ObjectSeg> object_segs;
-    generateProposal(input.bmnn_tensor->get_cpu_data(), object_segs);
-    const int last = static_cast<int>(object_segs.size());
-    tbb::parallel_for(0, last, 1, [&](const int i)
+    generateProposal(input.float_vector, object_segs);
+    for(auto& obj: object_segs)
     {
-        object_segs[i].region = un_letterbox(object_segs[i].region, input.origin_mat.rows, input.origin_mat.cols);
-    });
-    // for(auto& obj: object_segs)
-    // {
-    //     obj.region = un_letterbox(obj.region, input.origin_mat.rows, input.origin_mat.cols);
-    // }
+        obj.region = un_letterbox(obj.region, input.origin_mat.rows, input.origin_mat.cols);
+    }
     CommonResultSeg result(input);
     result.object_segs = object_segs;
     return result;

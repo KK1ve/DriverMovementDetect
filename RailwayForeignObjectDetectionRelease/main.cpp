@@ -63,7 +63,7 @@ int main(int argc, char* argv[]){
         static bool is_end = false;
         while (!is_end)
         {
-            cout << "video capture: " << frame_index <<endl;
+            // cout << "video capture: " << frame_index <<endl;
             frame_index += 1;
             {
                 std::unique_lock<std::mutex> video_capture_lock(video_capture_variable_mtx);
@@ -85,7 +85,7 @@ int main(int argc, char* argv[]){
             input.frame_index = frame_index;
             input.origin_mat = video_mat;
             // model_input_mat.start_time = std::chrono::system_clock::now(); // TODO CAN BE DELETE
-            cout << "video capture done: " << frame_index << endl;
+            // cout << "video capture done: " << frame_index << endl;
             return true;
         }
         return false;
@@ -96,10 +96,10 @@ int main(int argc, char* argv[]){
     tbb::flow::function_node<CommonResultSeg, CommonResultSeg>
     pre_process(g, 0, [&ISNet](CommonResultSeg input)
     {
-        cout << "pre process: " << input.frame_index << endl;
+        // cout << "pre process: " << input.frame_index << endl;
         if (input.frame_index == 0) return input;
         auto result = ISNet.pre_process(input);
-        cout << "pre process done: " << input.frame_index << endl;
+        // cout << "pre process done: " << input.frame_index << endl;
         return result;
     });
 
@@ -107,7 +107,7 @@ int main(int argc, char* argv[]){
     tbb::flow::function_node<CommonResultSeg, CommonResultSeg>
     detect(g, 1, [&ISNet, &need_capture](CommonResultSeg input)
     {
-        cout << "detect: " << input.frame_index << endl;
+        // cout << "detect: " << input.frame_index << endl;
         if (input.frame_index == 0) return input;
         auto result = ISNet.detect(input);
         {
@@ -115,7 +115,7 @@ int main(int argc, char* argv[]){
             need_capture += 1;
         }
         video_capture_variable.notify_all();
-        cout << "detect done: " << input.frame_index << endl;
+        // cout << "detect done: " << input.frame_index << endl;
         return result;
     });
 
@@ -123,10 +123,10 @@ int main(int argc, char* argv[]){
     tbb::flow::function_node<CommonResultSeg, CommonResultSeg>
     post_process(g, 0, [&ISNet](CommonResultSeg input)
     {
-        cout << "post process: " << input.frame_index << endl;
+        // cout << "post process: " << input.frame_index << endl;
         if (input.frame_index == 0) return input;
         auto result = ISNet.post_process(input);
-        cout << "post process done: " << input.frame_index << endl;
+        // cout << "post process done: " << input.frame_index << endl;
         return result;
     });
 
@@ -134,7 +134,7 @@ int main(int argc, char* argv[]){
     tbb::flow::function_node<CommonResultSeg, CommonResultSeg>
     vis(g, 0, [&ISNet, &diff, &start_time](CommonResultSeg input)
     {
-        cout << "vis: " << input.frame_index << endl;
+        // cout << "vis: " << input.frame_index << endl;
         if (input.frame_index == 0)
         {
             diff = std::chrono::system_clock::now() - start_time;
@@ -148,7 +148,7 @@ int main(int argc, char* argv[]){
         //     std::chrono::duration<float> _diff = std::chrono::system_clock::now() - input.start_time;
         //     cout << "frame index: " << input.frame_index << "  use time: " << _diff.cout() << endl;
         // }
-        cout << "vis done: " << input.frame_index << endl;
+        // cout << "vis done: " << input.frame_index << endl;
         return vis_result;
     });
 
@@ -158,7 +158,7 @@ int main(int argc, char* argv[]){
     tbb::flow::function_node<CommonResultSeg>
     save(g, 0, [&vwriter, &max_frame_id](CommonResultSeg input)
     {
-        cout << "save: " << input.frame_index << endl;
+        // cout << "save: " << input.frame_index << endl;
         if (input.frame_index == 0) return;
         std::unique_lock<std::mutex> lock(video_write_variable_mtx);
         video_write_variable.wait(lock, [&input, &max_frame_id]{return input.frame_index == max_frame_id + 1;});
@@ -169,7 +169,7 @@ int main(int argc, char* argv[]){
             max_frame_id += 1;
         }
         video_write_variable.notify_all();
-        cout << "save done: " << input.frame_index << endl;
+        // cout << "save done: " << input.frame_index << endl;
     });
 
     tbb::flow::function_node<CommonResultSeg>

@@ -36,7 +36,7 @@ class IS
         float nmsThresh;
         float confThresh;
 
-        void generateProposal(const float *pred, vector<ObjectSeg> &boxes);
+        void generateProposal(vector<float> pred, vector<ObjectSeg> &boxes);
 
 
         std::shared_ptr<BMNNContext> mBMContext;
