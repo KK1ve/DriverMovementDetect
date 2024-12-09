@@ -19,7 +19,7 @@ using namespace cv;
 class IS
 {
     public:
-        explicit IS(const string& modelpath, int use_int8 = 0, float nms_thresh_ = 0.5, float conf_thresh_ = 0.6);
+        explicit IS(const string& modelpath, float nms_thresh_ = 0.5, float conf_thresh_ = 0.6);
         // tuple [frame_id, last_step_result, origin_mat]
 
         CommonResultSeg pre_process(CommonResultSeg& input);

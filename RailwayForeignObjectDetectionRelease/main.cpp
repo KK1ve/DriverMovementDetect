@@ -7,20 +7,9 @@
 #include <tbb/concurrent_hash_map.h>
 #include <tbb/flow_graph.h>
 #include <map>
-condition_variable video_capture_variable;
-std::mutex video_capture_variable_mtx;
-
-std::mutex need_capture_mtx;
-
-condition_variable video_write_variable;
-std::mutex video_write_variable_mtx;
-
-std::mutex video_write_mtx;
-
-
 
 int main(int argc, char* argv[]){
-    IS ISNet(R"(/home/linaro/6A/model_zoo/railtrack_segmentation-mod-mix.bmodel)", 0);
+    IS ISNet(R"(/home/linaro/6A/model_zoo/railtrack_segmentation-mod-mix.bmodel)");
 
     const string videopath = R"(/home/linaro/6A/videos/test-railway-4.mp4)";
     const string savepath = R"(/home/linaro/6A/videos/result-railway-mix-test-4.mp4)";
@@ -147,14 +136,16 @@ int main(int argc, char* argv[]){
     save(g, 1, [&vwriter](CommonResultSeg input)
     {
         // cout << "save: " << input.frame_index << endl;
-        static map<unsigned long, CommonResultSeg> hash_map;
+        static map<unsigned long, cv::Mat> hash_map;
         static unsigned long current_save_frame_index = 1;
         if (input.frame_index == 0) return;
-        hash_map.insert(std::pair<unsigned long, CommonResultSeg>(input.frame_index, input));
+        cv::Mat mat(input.processed_mat);
+        const unsigned long _frame_index = input.frame_index;
+        hash_map.insert(std::pair<unsigned long, cv::Mat>(_frame_index, mat));
         while (hash_map.count(current_save_frame_index))
         {
             cout << "write video: " << current_save_frame_index << endl;
-            vwriter.write(hash_map[current_save_frame_index].processed_mat);
+            vwriter.write(hash_map[current_save_frame_index]);
             hash_map.erase(current_save_frame_index);
             current_save_frame_index += 1;
         }

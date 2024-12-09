@@ -7,7 +7,7 @@
 #include <tbb/parallel_for.h>
 #include <tbb/task_arena.h>
 
-IS::IS(const string& modelpath, int use_int8, const float nms_thresh_, const float conf_thresh_)
+IS::IS(const string& modelpath, const float nms_thresh_, const float conf_thresh_)
 {
     // creat handle
     BMNNHandlePtr handle = make_shared<BMNNHandle>(0);
