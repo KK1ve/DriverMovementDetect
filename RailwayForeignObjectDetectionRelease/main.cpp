@@ -21,7 +21,7 @@ std::mutex video_write_mtx;
 
 
 int main(int argc, char* argv[]){
-    IS ISNet(R"(/home/linaro/6A/model_zoo/railtrack_segmentation-mix.bmodel)", 0);
+    IS ISNet(R"(/home/linaro/6A/model_zoo/railtrack_segmentation-mod-mix.bmodel)", 0);
 
     const string videopath = R"(/home/linaro/6A/videos/test-railway-4.mp4)";
     const string savepath = R"(/home/linaro/6A/videos/result-railway-mix-test-4.mp4)";
@@ -84,7 +84,7 @@ int main(int argc, char* argv[]){
             }
             input.frame_index = frame_index;
             input.origin_mat = video_mat;
-            // model_input_mat.start_time = std::chrono::system_clock::now(); // TODO CAN BE DELETE
+            input.start_time = std::chrono::system_clock::now(); // TODO CAN BE DELETE
             // cout << "video capture done: " << frame_index << endl;
             return true;
         }
@@ -96,18 +96,19 @@ int main(int argc, char* argv[]){
     tbb::flow::function_node<CommonResultSeg, CommonResultSeg>
     pre_process(g, 0, [&ISNet](CommonResultSeg input)
     {
-        // cout << "pre process: " << input.frame_index << endl;
+        input.start_time = std::chrono::system_clock::now(); // TODO CAN BE DELETE
         if (input.frame_index == 0) return input;
         auto result = ISNet.pre_process(input);
-        // cout << "pre process done: " << input.frame_index << endl;
+        std::chrono::duration<float> _diff = std::chrono::system_clock::now() - input.start_time; // TODO CAN BE DELETE
+        cout << "pre_process done: " << input.frame_index << " use time: " <<  _diff.count() << endl; // TODO CAN BE DELETE
         return result;
     });
 
 
     tbb::flow::function_node<CommonResultSeg, CommonResultSeg>
-    detect(g, 1, [&ISNet, &need_capture](CommonResultSeg input)
+    detect(g, 0, [&ISNet, &need_capture](CommonResultSeg input)
     {
-        // cout << "detect: " << input.frame_index << endl;
+        input.start_time = std::chrono::system_clock::now(); // TODO CAN BE DELETE
         if (input.frame_index == 0) return input;
         auto result = ISNet.detect(input);
         {
@@ -115,7 +116,8 @@ int main(int argc, char* argv[]){
             need_capture += 1;
         }
         video_capture_variable.notify_all();
-        // cout << "detect done: " << input.frame_index << endl;
+        std::chrono::duration<float> _diff = std::chrono::system_clock::now() - input.start_time; // TODO CAN BE DELETE
+        cout << "detect done: " << input.frame_index << " use time: " <<  _diff.count() << endl; // TODO CAN BE DELETE
         return result;
     });
 
@@ -123,10 +125,11 @@ int main(int argc, char* argv[]){
     tbb::flow::function_node<CommonResultSeg, CommonResultSeg>
     post_process(g, 0, [&ISNet](CommonResultSeg input)
     {
-        // cout << "post process: " << input.frame_index << endl;
+        input.start_time = std::chrono::system_clock::now(); // TODO CAN BE DELETE
         if (input.frame_index == 0) return input;
         auto result = ISNet.post_process(input);
-        // cout << "post process done: " << input.frame_index << endl;
+        std::chrono::duration<float> _diff = std::chrono::system_clock::now() - input.start_time; // TODO CAN BE DELETE
+        cout << "post_process done: " << input.frame_index << " use time: " <<  _diff.count() << endl; // TODO CAN BE DELETE
         return result;
     });
 
@@ -134,7 +137,7 @@ int main(int argc, char* argv[]){
     tbb::flow::function_node<CommonResultSeg, CommonResultSeg>
     vis(g, 0, [&ISNet, &diff, &start_time](CommonResultSeg input)
     {
-        // cout << "vis: " << input.frame_index << endl;
+        input.start_time = std::chrono::system_clock::now(); // TODO CAN BE DELETE
         if (input.frame_index == 0)
         {
             diff = std::chrono::system_clock::now() - start_time;
@@ -146,12 +149,13 @@ int main(int argc, char* argv[]){
         // { // TODO CAN BE DELETE
         //
         //     std::chrono::duration<float> _diff = std::chrono::system_clock::now() - input.start_time;
-        //     cout << "frame index: " << input.frame_index << "  use time: " << _diff.cout() << endl;
+        //     cout << "frame index: " << input.frame_index << "  use time: " << _diff.count() << endl;
         // }
-        // cout << "vis done: " << input.frame_index << endl;
+        std::chrono::duration<float> _diff = std::chrono::system_clock::now() - input.start_time; // TODO CAN BE DELETE
+        cout << "vis done: " << input.frame_index << " use time: " <<  _diff.count() << endl; // TODO CAN BE DELETE
         return vis_result;
     });
-
+    tbb::flow::queue_node<CommonResultSeg> queue_node(g);
     tbb::flow::broadcast_node<CommonResultSeg> broadcast_node(g);
 
     unsigned long max_frame_id = 0;
@@ -187,7 +191,8 @@ int main(int argc, char* argv[]){
     tbb::flow::make_edge(pre_process, detect);
     tbb::flow::make_edge(detect, post_process);
     tbb::flow::make_edge(post_process, vis);
-    tbb::flow::make_edge(vis, broadcast_node);
+    tbb::flow::make_edge(vis, queue_node);
+    tbb::flow::make_edge(queue_node, broadcast_node);
     // tbb::flow::make_edge(broadcast_node, /*your code here*/);
     tbb::flow::make_edge(broadcast_node, save);
 

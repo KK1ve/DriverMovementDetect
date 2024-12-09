@@ -10,14 +10,6 @@
 #include <numeric>
 #include "opencv2/opencv.hpp"
 #include "vector"
-#define SEG SEGMENTATION
-
-struct ObjectSeg
-{
-    cv::Mat region;
-    int label;
-    std::string label_name;
-};
 
 
 struct ObjectPose
@@ -37,13 +29,12 @@ struct CommonResultSeg
     unsigned long frame_index;
     cv::Mat origin_mat;
     cv::Mat processed_mat;
-    std::vector<ObjectSeg> object_segs;
+    float* pred;
     std::vector<float> float_vector;
-    std::shared_ptr<BMNNTensor> bmnn_tensor;
-    // std::chrono::system_clock::time_point start_time; // TODO CAN BE DELETE
+    std::chrono::system_clock::time_point start_time; // TODO CAN BE DELETE
 };
 
-#if (SEG != 1)
+#if (SEGMENTATION == 0)
 #include <STrack.h>
 struct CommonResultPose
 {
@@ -233,7 +224,6 @@ static std::vector<int> multiclass_nms_class_agnostic(std::vector<ObjectPose>& b
         }
         std::vector<float> ious(boxes.size());
 
-        #pragma omp parallel for
         for (int j = i + 1; j < boxes.size(); ++j)
         {
             if (isSuppressed[j])

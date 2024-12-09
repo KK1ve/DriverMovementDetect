@@ -1,5 +1,7 @@
 #pragma once
 
+#include <vector>
+
 #include "Rect.h"
 
 namespace byte_track

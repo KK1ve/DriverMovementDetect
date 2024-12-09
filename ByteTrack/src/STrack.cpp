@@ -36,6 +36,12 @@ const bool& byte_track::STrack::isActivated() const
 {
     return is_activated_;
 }
+
+const std::vector<float>& byte_track::STrack::getActions() const
+{
+    return actions;
+}
+
 const float& byte_track::STrack::getScore() const
 {
     return score_;

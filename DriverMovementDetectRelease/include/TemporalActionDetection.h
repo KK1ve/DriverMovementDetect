@@ -21,12 +21,7 @@ using namespace std;
 class TAD
 {
     public:
-        TAD(const string& modelpath, int _origin_h = 1920, int _origin_w = 1080, float nms_thresh_ = 0.5, float conf_thresh_ = 0.1);
-        std::map<unsigned long, vector<float>> detect_multi_hot(const std::map<size_t, Mat>& video_mat_with_track_id);
-        void detect_one_hot(const Mat& video_mat, vector<ObjectPose> &boxes);
-        Mat vis_one_hot(Mat frame, vector<Bbox> boxes, vector<float> det_conf, vector<vector<float>> cls_conf, vector<int> keep_inds, float vis_thresh);
-        Mat vis(const Mat& frame, const vector<ObjectPose>& boxes, bool show_action = true, float action_thresh = 0.03, float keypoint_thresh = 0.4f);
-        void clear_clips_cache();
+        TAD(const string& modelpath, int _origin_h = 1920, int _origin_w = 1080, float nms_thresh_ = 0.5, float conf_thresh_ = 0.1, float action_thresh = 0.03, float keypoint_thresh = 0.4f);
 
         cv::Mat pre_process_mat(cv::Mat& origin_mat);
         std::vector<float> pre_process(std::vector<Mat>& mats);
@@ -46,6 +41,11 @@ class TAD
         int inpHeight;
         float nmsThresh;
         float confThresh;
+        float actionThresh;
+        float keypointThresh;
+
+        int boxSize;
+        int clsSize;
 
         const int topk = 40;
         const int strides[3] = {8, 16, 32};

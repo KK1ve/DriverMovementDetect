@@ -4,6 +4,7 @@
 #include "KalmanFilter.h"
 
 #include <cstddef>
+#include <vector>
 
 namespace byte_track
 {
@@ -29,6 +30,7 @@ public:
     const size_t& getFrameId() const;
     const size_t& getStartFrameId() const;
     const size_t& getTrackletLength() const;
+    const std::vector<float>& getActions() const;
 
     void activate(const size_t& frame_id, const size_t& track_id);
     void reActivate(const STrack &new_track, const size_t &frame_id, const int &new_track_id = -1);
@@ -38,6 +40,9 @@ public:
 
     void markAsLost();
     void markAsRemoved();
+
+    std::vector<float> kps;
+
 
 private:
     KalmanFilter kalman_filter_;

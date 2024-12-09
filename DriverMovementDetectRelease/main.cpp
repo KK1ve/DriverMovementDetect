@@ -3,7 +3,6 @@
 #include <iostream>
 #include <map>
 #include <numeric>
-#include "deepsort.h"
 #include "BYTETracker.h"
 #include <condition_variable>
 #include <tbb/concurrent_hash_map.h>
@@ -11,193 +10,12 @@
 #include <tbb/flow_graph.h>
 
 
+namespace byte_track
+{
+    struct Object;
+}
+
 using namespace std;
-
-float get_iou_value(ObjectPose& object_pose, deep_sort::DetectBox& detect_box)
-{
-    int xx1, yy1, xx2, yy2;
-
-    xx1 = std::max(object_pose.rect.x, detect_box.x1);
-    yy1 = std::max(object_pose.rect.y, detect_box.y1);
-    xx2 = std::min(object_pose.rect.x + object_pose.rect.width - 1, detect_box.x1 + (detect_box.x2 - detect_box.x1) - 1);
-    yy2 = std::min(object_pose.rect.y + object_pose.rect.height - 1, detect_box.y1 + (detect_box.y2 - detect_box.y1) - 1);
-
-    int insection_width, insection_height;
-    insection_width = std::max(0, xx2 - xx1 + 1);
-    insection_height = std::max(0, yy2 - yy1 + 1);
-
-    float insection_area, union_area, iou;
-    insection_area = float(insection_width) * insection_height;
-    union_area = float(object_pose.rect.width * object_pose.rect.height + (detect_box.x2 - detect_box.x1) * (detect_box.y2 - detect_box.y1) - insection_area);
-    iou = insection_area / union_area;
-    return iou;
-}
-
-void get_relate_track(vector<ObjectPose>& object_poses, vector<deep_sort::DetectBox>& detect_boxes){
-
-    if(object_poses.size() >= detect_boxes.size()){
-        vector<int> related_track_vector_index(detect_boxes.size(), 0);
-        for(auto & object_pose : object_poses)
-        {
-            if (object_pose.label != 0) continue;
-            float max_iou = LONG_MIN;
-            int relate = -1;
-            for(int j = 0; j < detect_boxes.size(); j ++)
-            {
-                if(related_track_vector_index[j] == 1) continue;
-                auto iou = get_iou_value(object_pose, detect_boxes[j]);
-                if (iou > max_iou)
-                {
-                    max_iou = iou;
-                    relate = j;
-                }
-
-            }
-            if(relate == -1) continue;
-            related_track_vector_index[relate] = 1;
-            object_pose.track_id = detect_boxes[relate].trackID;
-        }
-    }else
-    {
-        vector<int> related_object_vector_index(object_poses.size(), 0);
-        for(auto & detect_box : detect_boxes)
-        {
-            float max_iou = LONG_MIN;
-            int relate = -1;
-            for(int j = 0; j < object_poses.size(); j ++)
-            {
-                if(related_object_vector_index[j] == 1) continue;
-                auto iou = get_iou_value(object_poses[j], detect_box);
-                if (iou > max_iou)
-                {
-                    max_iou = iou;
-                    relate = j;
-                }
-
-            }
-            if(relate == -1) continue;
-            related_object_vector_index[relate] = 1;
-            object_poses[relate].track_id = detect_box.trackID;
-        }
-
-
-    }
-
-
-}
-
-void find_the_same_obj(std::vector<shared_ptr<byte_track::STrack>>& track_data, std::vector<ObjectPose>& object_poses)
-{
-    std::vector<std::vector<float>> iouResult(track_data.size(), std::vector<float>(object_poses.size()));
-    for(int i = 0; i < track_data.size(); i ++)
-    {
-#pragma omp parallel for
-        for(int j = 0;j < object_poses.size(); j ++)
-        {
-            iouResult[i][j] = GetIoU(cv::Rect(track_data[i].get()->getRect().x(), track_data[i].get()->getRect().y(),
-                track_data[i].get()->getRect().width(), track_data[i].get()->getRect().height()), object_poses[j].rect);
-        }
-    }
-    auto _track_data = track_data;
-    auto _object_poses = object_poses;
-    object_poses.clear();
-    while (!iouResult.empty())
-    {
-        float maxVal = -FLT_MAX;
-        int maxRow = -1, maxCol = -1;
-
-        for (int i = 0; i < iouResult.size(); ++i) {
-            for (int j = 0; j < iouResult[i].size(); ++j) {
-                if (iouResult[i][j] > maxVal) {
-                    maxVal = iouResult[i][j];
-                    maxRow = i;
-                    maxCol = j;
-                }
-            }
-        }
-
-        _object_poses[maxCol].track_id = _track_data[maxRow]->getTrackId();
-        object_poses.emplace_back(_object_poses[maxCol]);
-        iouResult.erase(iouResult.begin() + maxRow);
-        _track_data.erase(_track_data.begin() + maxRow);
-        _object_poses.erase(_object_poses.begin() + maxCol);
-        for (auto& i: iouResult)
-        {
-            i.erase(i.begin() + maxCol);
-        }
-
-    }
-
-
-}
-
-int detect_one(Mat& frame, TAD& TADnet, DWPOSE& DWPOSENet, byte_track::BYTETracker& BT, VideoWriter& vwriter, int width, int height)
-{
-    // vector<deep_sort::DetectBox> track_objects;
-    vector<ObjectPose> object_poses;
-    try{
-        // vector<Bbox> boxes;
-        // vector<float> det_conf;
-        // vector<vector<float>> cls_conf;
-        // vector<int> keep_inds = TADNet.detect_one_hot(frame, boxes, det_conf, cls_conf); ////keep_inds记录vector里面的有效检测框的序号
-        // Mat dstimg = TADNet.vis_one_hot(frame, boxes, det_conf, cls_conf, keep_inds, vis_thresh);
-
-        auto s_time = std::chrono::system_clock::now();
-        TADnet.detect_one_hot(frame, object_poses);
-        auto e_time = std::chrono::system_clock::now();
-        std::chrono::duration<float> diff = e_time - s_time;
-        cout << "TAD ACTION PRED TIME: " << diff.count() << endl;
-        vector<byte_track::Object> track_objects;
-
-        if (!object_poses.empty())
-        {
-            for(auto& o: object_poses)
-            {
-                if (o.label != 0) continue;
-                byte_track::Rect<float> r(o.rect.x, o.rect.y, o.rect.width, o.rect.height);
-                byte_track::Object ob(r, o.label, o.prob);
-                track_objects.emplace_back(ob);
-            }
-        }else
-        {
-            vwriter.write(TADnet.vis(frame, object_poses));
-            return 1;
-        }
-        s_time = std::chrono::system_clock::now();
-        auto track_data = BT.update(track_objects);
-        e_time = std::chrono::system_clock::now();
-        diff = e_time - s_time;
-        cout << "TRACK TIME: " << diff.count() << endl;
-        if (!track_data.empty())
-        {
-            find_the_same_obj(track_data, object_poses);
-            std::vector<cv::Mat> track_imgs;
-            for (auto & object_pose : object_poses)
-            {
-                track_imgs.emplace_back(frame(object_pose.rect).clone());
-            }
-            s_time = std::chrono::system_clock::now();
-            DWPOSENet.detect(track_imgs, object_poses);
-            e_time = std::chrono::system_clock::now();
-            diff = e_time - s_time;
-            cout << "DWPOSE TIME: " << diff.count() << endl;
-        }
-        Mat pedstimg = TADnet.vis(frame, object_poses, true);
-        vwriter.write(pedstimg);
-
-        /*imshow("Detect", dstimg);
-        if (cv::waitKey(1) > 0) {
-            break;
-        };*/
-
-    }catch (exception& e)
-    {
-        cout << e.what() << endl;
-        return 0;
-    }
-    return 1;
-
-}
 
 condition_variable video_capture_variable;
 std::mutex video_capture_variable_mtx;
@@ -232,7 +50,7 @@ int main(int argc, char*  []) {
     int fps = vcapture.get(cv::CAP_PROP_FPS);
     int video_length = vcapture.get(cv::CAP_PROP_FRAME_COUNT);
 
-    TAD TADNet(R"(/home/linaro/6A/model_zoo/yowo_v2_tiny_ava-mix.bmodel)", height, width);
+    TAD TADNet(R"(/home/linaro/6A/model_zoo/yowo_v2_medium_ava-mix.bmodel)", height, width);
     DWPOSE DWPOSENet(R"(/home/linaro/6A/model_zoo/dw-mm_ucoco-mod-mix.bmodel)", height, width);
 
     byte_track::BYTETracker tracker(fps, fps * 2, 0.1, 0.2, 0.89);
@@ -246,8 +64,6 @@ int main(int argc, char*  []) {
     tbb::flow::graph g;
 
     unsigned long need_capture = 1;
-    std::chrono::system_clock::time_point start_time = std::chrono::system_clock::now();
-    std::chrono::duration<float> diff;
 
     tbb::flow::source_node<CommonResultPose>
     video_capture(g, [&vcapture, &need_capture](CommonResultPose& input) -> bool
@@ -284,11 +100,12 @@ int main(int argc, char*  []) {
 
     }, false);
 
-    unsigned long pre_process_max_frame_id = 0;
+
     tbb::flow::function_node<CommonResultPose, CommonResultPose>
-    pre_process_tad(g, 0, [&TADNet, &pre_process_max_frame_id](CommonResultPose input)
+    pre_process_tad(g, 0, [&TADNet](CommonResultPose input)
     {
         if (input.frame_index == 0) return input;
+        static unsigned long pre_process_max_frame_id = 0;
         static std::vector<Mat> vcapture_mats;
         std::unique_lock<std::mutex> lock(pre_process_variable_mtx);
         pre_process_variable.wait(lock, [&input, &pre_process_max_frame_id]{return input.frame_index == pre_process_max_frame_id + 1;});
@@ -298,14 +115,15 @@ int main(int argc, char*  []) {
         {
             std::unique_lock<std::mutex> vcapture_mats_lock(vcapture_mats_mtx);
             vcapture_mats.emplace_back(precessed_mat);
-            if(vcapture_mats.size() > TADNet.len_clip)
+            if(vcapture_mats.size() > TADNet.len_clip - 1)
             {
                 vcapture_mats.erase(vcapture_mats.begin());
             }else if(vcapture_mats.size() <= TADNet.len_clip)
             {
-                for(int i = 0; i < TADNet.len_clip - vcapture_mats.size(); i ++)
+                const int count = static_cast<int>(TADNet.len_clip - vcapture_mats.size());
+                for(int i = 0; i < count; i ++)
                 {
-                    vcapture_mats.emplace_back(precessed_mat);
+                    vcapture_mats.emplace_back(precessed_mat.clone());
                 }
             }
             temp_vcapture_mats = vcapture_mats;
@@ -339,12 +157,13 @@ int main(int argc, char*  []) {
         return result;
     });
 
-    unsigned long max_frame_id_track = 0;
+
 
     tbb::flow::function_node<CommonResultPose, CommonResultPose>
-    track(g, 0, [&tracker, &max_frame_id_track](CommonResultPose input)
+    track(g, 0, [&tracker](CommonResultPose input)
     {
         if (input.frame_index == 0) return input;
+        static unsigned long max_frame_id_track = 0;
         vector<byte_track::Object> track_objects;
         for(auto& o: input.object_poses)
         {
@@ -391,14 +210,14 @@ int main(int argc, char*  []) {
         return TADNet.vis(input);
     });
 
-    tbb::flow::broadcast_node<CommonResultSeg> broadcast_node(g);
+    tbb::flow::broadcast_node<CommonResultPose> broadcast_node(g);
 
-    unsigned long max_frame_id = 0;
 
-    tbb::flow::function_node<CommonResultSeg>
-    save(g, 0, [&vwriter, &max_frame_id](CommonResultSeg input)
+    tbb::flow::function_node<CommonResultPose>
+    save(g, 0, [&vwriter](CommonResultPose input)
     {
         if (input.frame_index == 0) return;
+        static unsigned long max_frame_id = 0;
         std::unique_lock<std::mutex> lock(video_write_variable_mtx);
         video_write_variable.wait(lock, [&input, &max_frame_id]{return input.frame_index == max_frame_id + 1;});
         {
@@ -410,9 +229,20 @@ int main(int argc, char*  []) {
         video_write_variable.notify_all();
     });
 
+    tbb::flow::make_edge(video_capture, pre_process_tad);
+    tbb::flow::make_edge(pre_process_tad, detect_tad);
+    tbb::flow::make_edge(detect_tad, post_process_tad);
+    tbb::flow::make_edge(post_process_tad, track);
+    tbb::flow::make_edge(track, pre_process_pose);
+    tbb::flow::make_edge(pre_process_pose, detect_pose);
+    tbb::flow::make_edge(detect_pose, post_process_pose);
+    tbb::flow::make_edge(post_process_pose, vis);
+    tbb::flow::make_edge(vis, broadcast_node);
+    // tbb::flow::make_edge(broadcast_node, /*your code here*/);
+    tbb::flow::make_edge(broadcast_node, save);
 
-
-
+    video_capture.activate();
+    g.wait_for_all();
 
 
 
