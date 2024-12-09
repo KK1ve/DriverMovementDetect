@@ -1,7 +1,9 @@
 #include <tbb/flow_graph.h>
 #include <iostream>
 #include <tuple>
-
+#include <thread>
+#include <random>
+#include <queue>
 void multifunction_node()
 {
     tbb::flow::graph g;
@@ -35,6 +37,58 @@ void multifunction_node()
     g.wait_for_all();
 }
 
+struct CustomCompare {
+    bool operator()(const std::pair<int,int>&a,const  std::pair<int,int>&b) const {
+        return a.first > b.first; // 改为从小到大
+    }
+};
+void priority_queue_node()
+{
+    tbb::flow::graph g;
+    std::mt19937 gen(0);
+    std::uniform_int_distribution<int> dist(1000, 10000); // 生成 1 到 100 间的整数
+    // std::cout << "Radom max: " << RAND_MAX << std::endl;
+    tbb::flow::source_node<std::pair<int, int>> source(g, [](std::pair<int, int>& item) -> bool {
+        static int value = 0;
+        if (value < 10) {
+            item = {value, value};  // {序号, 数据}
+            ++value;
+            return true;
+        }
+        return false;
+    }, false);
+
+    // function_node 处理任务
+    tbb::flow::function_node<std::pair<int, int>, std::pair<int, int>> process_node(
+        g, tbb::flow::unlimited, [&](std::pair<int, int> input) {
+            int diff = dist(gen);
+            std::this_thread::sleep_for(std::chrono::milliseconds(diff));  // 模拟延迟
+            std::cout << "PUT: Original=" << input.first << ", Result=" << input.second << std::endl;
+            return std::make_pair(input.first, input.second * 10);        // 返回 {序号, 结果}
+        });
+
+    // priority_queue_node 确保按序输出
+    tbb::flow::priority_queue_node<std::pair<int, int>> priority_node(
+        g);
+
+
+    // 输出处理结果
+    tbb::flow::function_node<std::pair<int, int>> output_node(
+        g, tbb::flow::serial, [](const std::pair<int, int>& data) {
+            std::cout << "Processed: Original=" << data.first
+                      << ", Result=" << data.second << std::endl;
+        });
+
+    // 建立边
+    tbb::flow::make_edge(source, process_node);
+    tbb::flow::make_edge(process_node, priority_node);
+    tbb::flow::make_edge(priority_node, output_node);
+
+    // 激活图
+    source.activate();
+    g.wait_for_all();
+}
+
 
 struct Test
 {
@@ -43,8 +97,8 @@ struct Test
 };
 
 using namespace std;
-#include <thread>
-int main()
+
+void Test()
 {
     vector<float> input_tensor{1,2,3,4,5};
     vector<float> output_tensor;
@@ -68,4 +122,10 @@ int main()
         cout << i << "   ";
     }
 
+}
+
+#include <thread>
+int main()
+{
+    priority_queue_node();
 }

@@ -11,7 +11,6 @@
 #include "bmnn_utils.h"
 #include <tbb/concurrent_vector.h>
 #include <utils.h>
-#include <tbb/task_arena.h>
 using namespace std;
 using namespace cv;
 
@@ -39,9 +38,6 @@ class IS
         int image_area;
 
         void generateProposal(const vector<float>& pred, CommonResultSeg &input);
-
-        tbb::task_arena arena;
-
 
         std::shared_ptr<BMNNContext> mBMContext;
         std::shared_ptr<BMNNNetwork> mBMNetwork;

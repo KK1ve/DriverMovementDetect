@@ -39,19 +39,16 @@ IS::IS(const string& modelpath, int use_int8, const float nms_thresh_, const flo
 void IS::generateProposal(const vector<float>& pred, CommonResultSeg &input)
 {
     cv::Mat mat(inpHeight, inpWidth,  CV_8UC3, cv::Scalar(0, 0, 0));
-    arena.execute([&]()
+    tbb::parallel_for(0, inpWidth, [&](int w)
     {
-        tbb::parallel_for(0, inpWidth, [&](int w)
+        for(int h = 0; h < inpHeight; h++)
         {
-            for(int h = 0; h < inpHeight; h++)
-            {
-                const int index = h * inpWidth + w;
-                // cout << "w: " << w << " h: " << h << endl;
-                mat.at<cv::Vec3b>(h, w)[0] = matColos[static_cast<int>(pred[index])][2]; // Blue
-                mat.at<cv::Vec3b>(h, w)[1] = matColos[static_cast<int>(pred[index])][1];   // Green
-                mat.at<cv::Vec3b>(h, w)[2] = matColos[static_cast<int>(pred[index])][0];   // Red
-            }
-        });
+            const int index = h * inpWidth + w;
+            // cout << "w: " << w << " h: " << h << endl;
+            mat.at<cv::Vec3b>(h, w)[0] = matColos[static_cast<int>(pred[index])][2]; // Blue
+            mat.at<cv::Vec3b>(h, w)[1] = matColos[static_cast<int>(pred[index])][1];   // Green
+            mat.at<cv::Vec3b>(h, w)[2] = matColos[static_cast<int>(pred[index])][0];   // Red
+        }
     });
     input.processed_mat = mat;
 }
@@ -65,12 +62,9 @@ CommonResultSeg IS::pre_process(CommonResultSeg& input)
     vector<float> input_tensor(batchSize * 3 * image_area);
     size_t single_chn_size = image_area * sizeof(float);
     split(result_mat, bgrChannels);
-    arena.execute([&]
+    tbb::parallel_for(0, 3, [&](int i)
     {
-        tbb::parallel_for(0, 3, [&](int i)
-        {
-            memcpy(input_tensor.data() + i * image_area, bgrChannels[i].data, single_chn_size);
-        });
+        memcpy(input_tensor.data() + i * image_area, bgrChannels[i].data, single_chn_size);
     });
     CommonResultSeg result(input);
     result.float_vector = input_tensor;

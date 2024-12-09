@@ -6,8 +6,7 @@
 #include <utils.h>
 #include <tbb/concurrent_hash_map.h>
 #include <tbb/flow_graph.h>
-#include <tbb/concurrent_queue.h>
-
+#include <map>
 condition_variable video_capture_variable;
 std::mutex video_capture_variable_mtx;
 
@@ -52,12 +51,11 @@ int main(int argc, char* argv[]){
 
     tbb::flow::graph g;
 
-    unsigned long need_capture = 1;
     std::chrono::system_clock::time_point start_time = std::chrono::system_clock::now();
     std::chrono::duration<float> diff;
 
     tbb::flow::source_node<CommonResultSeg>
-    video_capture(g, [&vcapture, &need_capture](CommonResultSeg& input) -> bool
+    video_capture(g, [&vcapture](CommonResultSeg& input) -> bool
     {
         static unsigned long frame_index = 0;
         static bool is_end = false;
@@ -65,14 +63,6 @@ int main(int argc, char* argv[]){
         {
             // cout << "video capture: " << frame_index <<endl;
             frame_index += 1;
-            {
-                std::unique_lock<std::mutex> video_capture_lock(video_capture_variable_mtx);
-                video_capture_variable.wait(video_capture_lock, [&need_capture]{return need_capture > 0;});
-            }
-            {
-                std::unique_lock<std::mutex> need_capture_lock(need_capture_mtx);
-                need_capture -= 1;
-            }
             Mat video_mat;
             vcapture.read(video_mat);
             if (video_mat.empty())
@@ -106,16 +96,11 @@ int main(int argc, char* argv[]){
 
 
     tbb::flow::function_node<CommonResultSeg, CommonResultSeg>
-    detect(g, 0, [&ISNet, &need_capture](CommonResultSeg input)
+    detect(g, 0, [&ISNet](CommonResultSeg input)
     {
         input.start_time = std::chrono::system_clock::now(); // TODO CAN BE DELETE
         if (input.frame_index == 0) return input;
         auto result = ISNet.detect(input);
-        {
-            std::unique_lock<std::mutex> lock(need_capture_mtx);
-            need_capture += 1;
-        }
-        video_capture_variable.notify_all();
         std::chrono::duration<float> _diff = std::chrono::system_clock::now() - input.start_time; // TODO CAN BE DELETE
         cout << "detect done: " << input.frame_index << " use time: " <<  _diff.count() << endl; // TODO CAN BE DELETE
         return result;
@@ -158,34 +143,34 @@ int main(int argc, char* argv[]){
     tbb::flow::queue_node<CommonResultSeg> queue_node(g);
     tbb::flow::broadcast_node<CommonResultSeg> broadcast_node(g);
 
-    unsigned long max_frame_id = 0;
     tbb::flow::function_node<CommonResultSeg>
-    save(g, 0, [&vwriter, &max_frame_id](CommonResultSeg input)
+    save(g, 1, [&vwriter](CommonResultSeg input)
     {
         // cout << "save: " << input.frame_index << endl;
+        static map<unsigned long, CommonResultSeg> hash_map;
+        static unsigned long current_save_frame_index = 1;
         if (input.frame_index == 0) return;
-        std::unique_lock<std::mutex> lock(video_write_variable_mtx);
-        video_write_variable.wait(lock, [&input, &max_frame_id]{return input.frame_index == max_frame_id + 1;});
+        hash_map.insert(std::pair<unsigned long, CommonResultSeg>(input.frame_index, input));
+        while (hash_map.count(current_save_frame_index))
         {
-            cout << "write video: " << input.frame_index << endl;
-            std::unique_lock<std::mutex> video_write_lock(video_write_mtx);
-            vwriter.write(input.processed_mat);
-            max_frame_id += 1;
+            cout << "write video: " << current_save_frame_index << endl;
+            vwriter.write(hash_map[current_save_frame_index].processed_mat);
+            hash_map.erase(current_save_frame_index);
+            current_save_frame_index += 1;
         }
-        video_write_variable.notify_all();
         // cout << "save done: " << input.frame_index << endl;
     });
 
-    tbb::flow::function_node<CommonResultSeg>
-    save_batch(g, 0, [&vwriter, &max_frame_id](CommonResultSeg input)
-    {
-        if (input.frame_index == 0) return;
-        std::unique_lock<std::mutex> lock(video_write_variable_mtx);
-        video_write_variable.wait(lock, [&input, &max_frame_id]{return input.frame_index == max_frame_id + 1;});
-        static map<unsigned long, CommonResultSeg> mat_map;
-        mat_map.insert(std::pair<unsigned long, CommonResultSeg>(input.frame_index,input));
-        // TODO
-    });
+    // tbb::flow::function_node<CommonResultSeg>
+    // save_batch(g, 0, [&vwriter, &max_frame_id](CommonResultSeg input)
+    // {
+    //     if (input.frame_index == 0) return;
+    //     std::unique_lock<std::mutex> lock(video_write_variable_mtx);
+    //     video_write_variable.wait(lock, [&input, &max_frame_id]{return input.frame_index == max_frame_id + 1;});
+    //     static map<unsigned long, CommonResultSeg> mat_map;
+    //     mat_map.insert(std::pair<unsigned long, CommonResultSeg>(input.frame_index,input));
+    //     // TODO
+    // });
 
     tbb::flow::make_edge(video_capture, pre_process);
     tbb::flow::make_edge(pre_process, detect);
