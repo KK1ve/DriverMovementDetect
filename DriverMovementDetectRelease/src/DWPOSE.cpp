@@ -60,10 +60,9 @@ CommonResultPose DWPOSE::pre_process(CommonResultPose& input)
         memcpy(input_tensor.data() + i * batch_size + 2 * image_area, bgrChannels[2].data, single_chn_size);
     }
 
-    CommonResultPose result(input);
-    result.float_vector = input_tensor;
+    input.float_vector = input_tensor;
 
-    return result;
+    return input;
 
 
 }
@@ -122,10 +121,9 @@ CommonResultPose DWPOSE::detect(CommonResultPose& input)
             b = -1;
         }
     }
-    CommonResultPose result(input);
-    result.float_vector = out_tensort;
+    input.float_vector = out_tensort;
 
-    return result;
+    return input;
 
 
 }
@@ -133,21 +131,20 @@ CommonResultPose DWPOSE::detect(CommonResultPose& input)
 
 CommonResultPose DWPOSE::post_process(CommonResultPose& input)
 {
-    CommonResultPose result(input);
 
-    for (int n = 0; n < result.track_vector.size(); n ++){
-        const float scale = min(float(inpHeight) / float(result.track_vector[n]->getRect().height()), float(inpWidth) / float(result.track_vector[n]->getRect().width()));
-        const int padd_w = round((float(inpWidth) - float(result.track_vector[n]->getRect().width()) * scale) / 2.0f);
-        const int padd_h = round((float(inpHeight) - float(result.track_vector[n]->getRect().height()) * scale) / 2.0f);
+    for (int n = 0; n < input.track_vector.size(); n ++){
+        const float scale = min(float(inpHeight) / float(input.track_vector[n]->getRect().height()), float(inpWidth) / float(input.track_vector[n]->getRect().width()));
+        const int padd_w = round((float(inpWidth) - float(input.track_vector[n]->getRect().width()) * scale) / 2.0f);
+        const int padd_h = round((float(inpHeight) - float(input.track_vector[n]->getRect().height()) * scale) / 2.0f);
         for (int i = 0 ; i < keypointsCount; i ++)
         {
-            result.track_vector[n]->kps.emplace_back((result.float_vector[n * keypointsCount * 3 + 0 * keypointsCount + i] - padd_w) / scale + result.track_vector[n]->getRect().x());
-            result.track_vector[n]->kps.emplace_back((result.float_vector[n * keypointsCount * 3 + 1 * keypointsCount + i] - padd_h) / scale + result.track_vector[n]->getRect().y());
-            result.track_vector[n]->kps.emplace_back(result.float_vector[n * keypointsCount * 3 + 2 * keypointsCount + i]);
+            input.track_vector[n]->kps.emplace_back((input.float_vector[n * keypointsCount * 3 + 0 * keypointsCount + i] - padd_w) / scale + input.track_vector[n]->getRect().x());
+            input.track_vector[n]->kps.emplace_back((input.float_vector[n * keypointsCount * 3 + 1 * keypointsCount + i] - padd_h) / scale + input.track_vector[n]->getRect().y());
+            input.track_vector[n]->kps.emplace_back(input.float_vector[n * keypointsCount * 3 + 2 * keypointsCount + i]);
         }
     }
 
-    return result;
+    return input;
 
 }
 

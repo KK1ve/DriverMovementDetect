@@ -71,6 +71,8 @@ int main(int argc, char* argv[]){
 
     }, false);
 
+    tbb::flow::limiter_node<CommonResultSeg> limiter(g, 1);
+
 
     tbb::flow::function_node<CommonResultSeg, CommonResultSeg>
     pre_process(g, 0, [&ISNet](CommonResultSeg input)
@@ -85,7 +87,7 @@ int main(int argc, char* argv[]){
 
 
     tbb::flow::function_node<CommonResultSeg, CommonResultSeg>
-    detect(g, 0, [&ISNet](CommonResultSeg input)
+    detect(g, 1, [&ISNet](CommonResultSeg input)
     {
         input.start_time = std::chrono::system_clock::now(); // TODO CAN BE DELETE
         if (input.frame_index == 0) return input;

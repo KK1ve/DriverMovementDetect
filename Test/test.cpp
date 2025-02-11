@@ -8,19 +8,41 @@ void multifunction_node()
 {
     tbb::flow::graph g;
 
+    tbb::flow::source_node<int> source(g, [](int& item) -> bool {
+        static int value = 0;
+        if (value < 10) {
+            item = value;  // {序号, 数据}
+            ++value;
+            return true;
+        }
+        return false;
+    }, false);
+
     // multifuction_node 产生不同类型的输出
     tbb::flow::multifunction_node<int, std::tuple<int, float>> node1(
         g, tbb::flow::serial, [](const int& input, tbb::flow::multifunction_node<int, std::tuple<int, float>>::output_ports_type& ports) {
             std::cout << "Node1 processing: " << input << std::endl;
-
+            return;
             // 发送给不同的输出端口
             std::get<0>(ports).try_put(input * 10);   // 发送整数
-            std::get<1>(ports).try_put(input * 1.5f); // 发送浮点数
+            if (input == 2)
+            {
+                std::get<1>(ports).try_put(input * 1.5f); // 发送浮点数
+            }
+            return;
         });
 
     // 两个下游节点分别接收不同的数据类型
-    tbb::flow::function_node<int> node2(g, tbb::flow::serial, [](int v) {
+    tbb::flow::function_node<int, int> node2(g, tbb::flow::serial, [](int v) {
         std::cout << "Node2 received (int): " << v << std::endl;
+        if (v == 4)
+        {
+            return v;
+        }
+    });
+
+    tbb::flow::function_node<int> node4(g, tbb::flow::serial, [](int v) {
+    std::cout << "Node4 received (int): " << v << std::endl;
     });
 
     tbb::flow::function_node<float> node3(g, tbb::flow::serial, [](float v) {
@@ -28,12 +50,13 @@ void multifunction_node()
     });
 
     // 连接不同的输出端口到不同的 function_node
+    tbb::flow::make_edge(source, node1);
     tbb::flow::make_edge(tbb::flow::output_port<0>(node1), node2);
+    tbb::flow::make_edge(node2, node4);
     tbb::flow::make_edge(tbb::flow::output_port<1>(node1), node3);
 
     // 发送任务
-    node1.try_put(2);
-
+    source.activate();
     g.wait_for_all();
 }
 
@@ -88,6 +111,43 @@ void priority_queue_node()
     source.activate();
     g.wait_for_all();
 }
+#include <atomic>
+void wait_source()
+{
+    tbb::flow::graph g;
+
+    std::atomic<bool> condition_met(false);
+
+    tbb::flow::source_node<int> source(g, [&](int& output) -> bool {
+        if (!condition_met.load()) {
+            return false; // 暂时不生成任务
+        }
+
+        static int value = 0;
+        if (value < 10) {
+            output = value++;
+            return true;
+        }
+        return false; // 停止生成任务
+    }, false);
+
+    tbb::flow::function_node<int> func(g, tbb::flow::unlimited, [](int input) {
+        std::cout << "Processing: " << input << std::endl;
+    });
+
+    tbb::flow::make_edge(source, func);
+
+    source.activate();
+
+    std::thread condition_thread([&]() {
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+        condition_met = true; // 改变条件
+    });
+
+    g.wait_for_all();
+    condition_thread.join();
+
+}
 
 
 struct Test
@@ -127,5 +187,5 @@ void Test()
 #include <thread>
 int main()
 {
-    priority_queue_node();
+    wait_source();
 }

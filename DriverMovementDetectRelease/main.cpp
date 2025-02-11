@@ -8,32 +8,9 @@
 #include <tbb/concurrent_hash_map.h>
 #include <tbb/concurrent_vector.h>
 #include <tbb/flow_graph.h>
-
-
-namespace byte_track
-{
-    struct Object;
-}
+#include <tbb/parallel_for.h>
 
 using namespace std;
-
-condition_variable video_capture_variable;
-std::mutex video_capture_variable_mtx;
-
-condition_variable pre_process_variable;
-std::mutex pre_process_variable_mtx;
-
-std::mutex need_capture_mtx;
-
-condition_variable video_write_variable;
-std::mutex video_write_variable_mtx;
-
-std::mutex video_write_mtx;
-
-std::mutex vcapture_mats_mtx;
-
-condition_variable max_frame_id_track_variable;
-std::mutex max_frame_id_track_mtx;
 
 int main(int argc, char*  []) {
 
@@ -63,24 +40,15 @@ int main(int argc, char*  []) {
 
     tbb::flow::graph g;
 
-    unsigned long need_capture = 1;
 
     tbb::flow::source_node<CommonResultPose>
-    video_capture(g, [&vcapture, &need_capture](CommonResultPose& input) -> bool
+    video_capture(g, [&vcapture](CommonResultPose& input) -> bool
     {
         static unsigned long frame_index = 0;
         static bool is_end = false;
         while (!is_end)
         {
             frame_index += 1;
-            {
-                std::unique_lock<std::mutex> video_capture_lock(video_capture_variable_mtx);
-                video_capture_variable.wait(video_capture_lock, [&need_capture]{return need_capture > 0;});
-            }
-            {
-                std::unique_lock<std::mutex> need_capture_lock(need_capture_mtx);
-                need_capture -= 1;
-            }
             Mat video_mat;
             vcapture.read(video_mat);
             if (video_mat.empty())
@@ -100,70 +68,76 @@ int main(int argc, char*  []) {
 
     }, false);
 
-
-    tbb::flow::function_node<CommonResultPose, CommonResultPose>
-    pre_process_tad(g, 0, [&TADNet](CommonResultPose input)
+    tbb::flow::multifunction_node<CommonResultPose, std::tuple<CommonResultPose>> sort_video_mat(
+    g, 1, [&TADNet](CommonResultPose input, tbb::flow::multifunction_node<CommonResultPose, std::tuple<CommonResultPose>>::output_ports_type& ports)
     {
-        if (input.frame_index == 0) return input;
-        static unsigned long pre_process_max_frame_id = 0;
-        static std::vector<Mat> vcapture_mats;
-        std::unique_lock<std::mutex> lock(pre_process_variable_mtx);
-        pre_process_variable.wait(lock, [&input, &pre_process_max_frame_id]{return input.frame_index == pre_process_max_frame_id + 1;});
-        vector<Mat> temp_vcapture_mats;
-        vector<float> vector_result;
-        Mat precessed_mat = TADNet.pre_process_mat(input.origin_mat);
+        static map<unsigned long, Mat> maps;
+        static unsigned long current_save_frame_index = 1;
+        if (input.frame_index == 0)
         {
-            std::unique_lock<std::mutex> vcapture_mats_lock(vcapture_mats_mtx);
-            vcapture_mats.emplace_back(precessed_mat);
-            if(vcapture_mats.size() > TADNet.len_clip - 1)
+            std::get<0>(ports).try_put(input);
+            return;
+        }
+        maps.insert(std::pair<unsigned long, Mat>(input.frame_index, input.origin_mat));
+        while (true)
+        {
+            for(unsigned long i = current_save_frame_index; i < current_save_frame_index + TADNet.len_clip; i ++)
             {
-                vcapture_mats.erase(vcapture_mats.begin());
-            }else if(vcapture_mats.size() <= TADNet.len_clip)
-            {
-                const int count = static_cast<int>(TADNet.len_clip - vcapture_mats.size());
-                for(int i = 0; i < count; i ++)
+                if(!maps.count(i))
                 {
-                    vcapture_mats.emplace_back(precessed_mat.clone());
+                    return;
                 }
             }
-            temp_vcapture_mats = vcapture_mats;
-            pre_process_max_frame_id += 1;
+            vector<Mat> _video_mats(TADNet.len_clip);
+            tbb::parallel_for(0, TADNet.len_clip, [&](int i)
+            {
+                _video_mats[i] = maps[i + current_save_frame_index];
+            });
+            maps.erase(current_save_frame_index);
+            current_save_frame_index += 1;
+            input.video_mats = _video_mats;
+            std::get<0>(ports).try_put(input);
         }
-        vector_result = TADNet.pre_process(temp_vcapture_mats);
-        CommonResultPose result(input);
-        result.float_vector = vector_result;
-        return result;
     });
 
     tbb::flow::function_node<CommonResultPose, CommonResultPose>
-    detect_tad(g, 2, [&TADNet, &need_capture](CommonResultPose input)
+    pre_process_tad(g, 1, [&TADNet](CommonResultPose input) // CONCURRENCY_EDIT
+    {
+        if (input.frame_index == 0) return input;
+        auto vector_result = TADNet.pre_process(input.video_mats);
+        input.video_mats.clear();
+        input.float_vector = vector_result;
+        return input;
+    });
+
+    tbb::flow::function_node<CommonResultPose, CommonResultPose>
+    detect_tad(g, 1, [&TADNet](CommonResultPose input)
     {
         if (input.frame_index == 0) return input;
         auto result = TADNet.detect(input);
-        {
-            std::unique_lock<std::mutex> lock(need_capture_mtx);
-            need_capture += 1;
-        }
-        video_capture_variable.notify_all();
+        cout << "detect size: " << result.object_poses.size() << endl;
         return result;
     });
 
 
     tbb::flow::function_node<CommonResultPose, CommonResultPose>
-    post_process_tad(g, 0, [&TADNet](CommonResultPose input)
+    post_process_tad(g, 1, [&TADNet](CommonResultPose input)    // CONCURRENCY_EDIT
     {
         if (input.frame_index == 0) return input;
         auto result = TADNet.post_process(input);
         return result;
     });
 
-
-
-    tbb::flow::function_node<CommonResultPose, CommonResultPose>
-    track(g, 0, [&tracker](CommonResultPose input)
+    tbb::flow::multifunction_node<CommonResultPose, std::tuple<CommonResultPose> > sort_tad_result(
+    g, 1, [&TADNet](CommonResultPose input, tbb::flow::multifunction_node<CommonResultPose, std::tuple<CommonResultPose> >::output_ports_type& ports)
     {
-        if (input.frame_index == 0) return input;
-        static unsigned long max_frame_id_track = 0;
+        static map<unsigned long, CommonResultPose> maps;
+        static unsigned long current_save_frame_index = TADNet.len_clip;
+        if (input.frame_index == 0)
+        {
+            std::get<0>(ports).try_put(input);
+            return;
+        }
         vector<byte_track::Object> track_objects;
         for(auto& o: input.object_poses)
         {
@@ -171,25 +145,40 @@ int main(int argc, char*  []) {
             byte_track::Object ob(r, o.label, o.prob, o.action_prob);
             track_objects.emplace_back(ob);
         }
-        std::unique_lock<std::mutex> lock(max_frame_id_track_mtx);
-        max_frame_id_track_variable.wait(lock, [&input, &max_frame_id_track]{return input.frame_index == max_frame_id_track + 1;});
-        auto track_result = tracker.update(track_objects);
-        CommonResultPose result(input);
-        result.track_vector = track_result;
-        max_frame_id_track += 1;
-        return result;
+        input.track_objects = track_objects;
+
+        maps.insert(std::pair<unsigned long, CommonResultPose>(input.frame_index, input));
+
+        while (maps.count(current_save_frame_index))
+        {
+            CommonResultPose result(maps[current_save_frame_index]);
+            std::get<0>(ports).try_put(result);
+            maps.erase(current_save_frame_index);
+            current_save_frame_index += 1;
+        }
+    });
+
+
+    tbb::flow::function_node<CommonResultPose, CommonResultPose>
+    track(g, 1, [&tracker](CommonResultPose input)
+    {
+        auto track_result = tracker.update(input.track_objects);
+        input.track_vector = track_result;
+        input.track_objects.clear();
+        return input;
     });
 
     tbb::flow::function_node<CommonResultPose, CommonResultPose>
-    pre_process_pose(g, 0, [&DWPOSENet](CommonResultPose input)
+    pre_process_pose(g, 1, [&DWPOSENet](CommonResultPose input) // CONCURRENCY_EDIT
     {
         if (input.frame_index == 0) return input;
+        cout << "track size: " << input.track_vector.size() << endl;
         return DWPOSENet.pre_process(input);
     });
 
 
     tbb::flow::function_node<CommonResultPose, CommonResultPose>
-    detect_pose(g, 0, [&DWPOSENet](CommonResultPose input)
+    detect_pose(g, 1, [&DWPOSENet](CommonResultPose input)  // CONCURRENCY_EDIT
     {
         if (input.frame_index == 0) return input;
         return DWPOSENet.detect(input);
@@ -197,47 +186,54 @@ int main(int argc, char*  []) {
 
 
     tbb::flow::function_node<CommonResultPose, CommonResultPose>
-    post_process_pose(g, 0, [&DWPOSENet](CommonResultPose input)
+    post_process_pose(g, 1, [&DWPOSENet](CommonResultPose input)    // CONCURRENCY_EDIT
     {
         if (input.frame_index == 0) return input;
         return DWPOSENet.post_process(input);
     });
 
     tbb::flow::function_node<CommonResultPose, CommonResultPose>
-    vis(g, 0, [&TADNet](CommonResultPose input)
+    vis(g, 1, [&TADNet](CommonResultPose input) // CONCURRENCY_EDIT
     {
         if (input.frame_index == 0) return input;
         return TADNet.vis(input);
     });
-
+    tbb::flow::queue_node<CommonResultPose> queue_node(g);
     tbb::flow::broadcast_node<CommonResultPose> broadcast_node(g);
 
 
     tbb::flow::function_node<CommonResultPose>
-    save(g, 0, [&vwriter](CommonResultPose input)
+    save(g, 1, [&vwriter](CommonResultPose input)
     {
+        // cout << "save: " << input.frame_index << endl;
+        static map<unsigned long, cv::Mat> hash_map;
+        static unsigned long current_save_frame_index = 1;
         if (input.frame_index == 0) return;
-        static unsigned long max_frame_id = 0;
-        std::unique_lock<std::mutex> lock(video_write_variable_mtx);
-        video_write_variable.wait(lock, [&input, &max_frame_id]{return input.frame_index == max_frame_id + 1;});
+        cv::Mat mat(input.processed_mat);
+        const unsigned long _frame_index = input.frame_index;
+        hash_map.insert(std::pair<unsigned long, cv::Mat>(_frame_index, mat));
+        while (hash_map.count(current_save_frame_index))
         {
-            cout << "write video: " << input.frame_index << endl;
-            std::unique_lock<std::mutex> video_write_lock(video_write_mtx);
-            vwriter.write(input.processed_mat);
-            max_frame_id += 1;
+            cout << "write video: " << current_save_frame_index << endl;
+            vwriter.write(hash_map[current_save_frame_index]);
+            hash_map.erase(current_save_frame_index);
+            current_save_frame_index += 1;
         }
-        video_write_variable.notify_all();
+        // cout << "save done: " << input.frame_index << endl;
     });
 
-    tbb::flow::make_edge(video_capture, pre_process_tad);
+    tbb::flow::make_edge(video_capture, sort_video_mat);
+    tbb::flow::make_edge(tbb::flow::output_port<0>(sort_video_mat), pre_process_tad);
     tbb::flow::make_edge(pre_process_tad, detect_tad);
     tbb::flow::make_edge(detect_tad, post_process_tad);
-    tbb::flow::make_edge(post_process_tad, track);
+    tbb::flow::make_edge(post_process_tad, sort_tad_result);
+    tbb::flow::make_edge(tbb::flow::output_port<0>(sort_tad_result), track);
     tbb::flow::make_edge(track, pre_process_pose);
     tbb::flow::make_edge(pre_process_pose, detect_pose);
     tbb::flow::make_edge(detect_pose, post_process_pose);
     tbb::flow::make_edge(post_process_pose, vis);
-    tbb::flow::make_edge(vis, broadcast_node);
+    tbb::flow::make_edge(vis, queue_node);
+    tbb::flow::make_edge(queue_node, broadcast_node);
     // tbb::flow::make_edge(broadcast_node, /*your code here*/);
     tbb::flow::make_edge(broadcast_node, save);
 

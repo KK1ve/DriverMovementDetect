@@ -66,9 +66,8 @@ CommonResultSeg IS::pre_process(CommonResultSeg& input)
     {
         memcpy(input_tensor.data() + i * image_area, bgrChannels[i].data, single_chn_size);
     });
-    CommonResultSeg result(input);
-    result.float_vector = input_tensor;
-    return result;
+    input.float_vector = input_tensor;
+    return input;
 }
 
 CommonResultSeg IS::detect(CommonResultSeg& input)
@@ -80,23 +79,20 @@ CommonResultSeg IS::detect(CommonResultSeg& input)
     int size = this->batchSize * this->inpHeight * this->inpWidth;
     vector<float> output(size);
     memcpy(output.data(), pred, size * sizeof(float));
-    CommonResultSeg result(input);
-    result.float_vector = output;
-    return result;
+    input.float_vector = output;
+    return input;
 }
 
 CommonResultSeg IS::post_process(CommonResultSeg& input)
 {
     generateProposal(input.float_vector, input);
     input.processed_mat = un_letterbox(input.processed_mat, input.origin_mat.rows, input.origin_mat.cols);
-    CommonResultSeg result(input);
-    return result;
+    return input;
 }
 CommonResultSeg IS::vis(CommonResultSeg& input)
 {
     Mat result_mat = input.origin_mat.clone();
     addWeighted(result_mat, 1, input.processed_mat, 1, 1, result_mat);
-    CommonResultSeg result(input);
-    result.processed_mat = result_mat;
-    return result;
+    input.processed_mat = result_mat;
+    return input;
 }

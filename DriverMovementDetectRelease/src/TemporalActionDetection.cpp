@@ -81,8 +81,8 @@ std::vector<float> TAD::pre_process(std::vector<Mat>& mats)
     input_tensor.resize(batchSize * this->len_clip * 3 * image_area);
     size_t single_chn_size = image_area * sizeof(float);
     const int chn_area = this->len_clip * image_area;
-    vector<cv::Mat> bgrChannels(3);
     for(int i = 0; i < len_clip; i ++){
+        vector<cv::Mat> bgrChannels(3);
         split(mats[i], bgrChannels);
         memcpy(input_tensor.data() + 0 * chn_area + i * image_area, (float *)bgrChannels[0].data, single_chn_size);
         memcpy(input_tensor.data() + 1 * chn_area + i * image_area, (float *)bgrChannels[1].data, single_chn_size);
@@ -101,9 +101,8 @@ CommonResultPose TAD::detect(CommonResultPose& input)
     int size = this->batchSize * outputTensor->get_shape()->dims[1] * outputTensor->get_shape()->dims[2];
     vector<float> output(size);
     memcpy(output.data(), pred, size * sizeof(float));
-    CommonResultPose result(input);
-    result.float_vector = output;
-    return result;
+    input.float_vector = output;
+    return input;
 
 }
 
@@ -117,7 +116,7 @@ CommonResultPose TAD::post_process(CommonResultPose& input)
         op.rect = cv::Rect(input.float_vector[i * clsSize + 0], input.float_vector[i * clsSize + 1],
             input.float_vector[i * clsSize + 2], input.float_vector[i * clsSize + 3]);
         op.label = 0;
-        for(int j = 5; j < clsSize;j ++)
+        for(int j = 5; j < clsSize + 5;j ++)
         {
             op.action_prob.emplace_back(input.float_vector[i * clsSize + j]);
         }
@@ -130,9 +129,8 @@ CommonResultPose TAD::post_process(CommonResultPose& input)
         object_poses.emplace_back(_object_poses[i]);
     }
 
-    CommonResultPose result(input);
-    result.object_poses = object_poses;
-    return result;
+    input.object_poses = object_poses;
+    return input;
 }
 
 
@@ -306,8 +304,7 @@ CommonResultPose TAD::vis(CommonResultPose& input)
         }
 
     }
-    CommonResultPose result(input);
-    result.processed_mat = res;
+    input.processed_mat = res;
 
-    return result;
+    return input;
 }
