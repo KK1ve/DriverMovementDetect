@@ -1,12 +1,18 @@
 //
 // Created by 171153 on 2024/8/13.
 //
+#include <atomic>
+
 #include "include/InstanceSegmentation.h"
 #include <condition_variable>
 #include <utils.h>
 #include <tbb/concurrent_hash_map.h>
 #include <tbb/flow_graph.h>
 #include <map>
+
+std::atomic<unsigned int> condition{1};
+std::mutex mtx;
+std::condition_variable my_variable;
 
 int main(int argc, char* argv[]){
     IS ISNet(R"(/home/linaro/6A/model_zoo/railtrack_segmentation-mod-mix.bmodel)");
@@ -22,6 +28,7 @@ int main(int argc, char* argv[]){
     int height = static_cast<int>(vcapture.get(cv::CAP_PROP_FRAME_HEIGHT));
     int width = static_cast<int>(vcapture.get(cv::CAP_PROP_FRAME_WIDTH));
     int fps = static_cast<int>(vcapture.get(cv::CAP_PROP_FPS));
+    condition = fps;
     int video_length = static_cast<int>(vcapture.get(cv::CAP_PROP_FRAME_COUNT));
 
     VideoWriter vwriter;
@@ -53,6 +60,8 @@ int main(int argc, char* argv[]){
             // cout << "video capture: " << frame_index <<endl;
             frame_index += 1;
             Mat video_mat;
+            std::unique_lock<std::mutex> lock(mtx);
+            my_variable.wait(lock, [] { return condition.load() > 0; });
             vcapture.read(video_mat);
             if (video_mat.empty())
             {
@@ -93,6 +102,8 @@ int main(int argc, char* argv[]){
         if (input.frame_index == 0) return input;
         auto result = ISNet.detect(input);
         std::chrono::duration<float> _diff = std::chrono::system_clock::now() - input.start_time; // TODO CAN BE DELETE
+        std::lock_guard<std::mutex> lock(mtx);
+        condition += 1;
         cout << "detect done: " << input.frame_index << " use time: " <<  _diff.count() << endl; // TODO CAN BE DELETE
         return result;
     });
