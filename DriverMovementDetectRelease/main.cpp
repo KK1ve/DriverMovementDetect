@@ -9,8 +9,20 @@
 #include <tbb/concurrent_vector.h>
 #include <tbb/flow_graph.h>
 #include <tbb/parallel_for.h>
+#include <atomic>
+
+
+#define BACKWARD_HAS_DW 1
+#include "backward.hpp"
+namespace backward{
+    backward::SignalHandling sh;
+}
 
 using namespace std;
+
+std::atomic<unsigned int> condition{1};
+std::mutex mtx;
+std::condition_variable my_variable;
 
 int main(int argc, char*  []) {
 
@@ -29,7 +41,7 @@ int main(int argc, char*  []) {
 
     TAD TADNet(R"(/home/linaro/6A/model_zoo/yowo_v2_medium_ava-mix.bmodel)", height, width);
     DWPOSE DWPOSENet(R"(/home/linaro/6A/model_zoo/dw-mm_ucoco-mod-mix.bmodel)", height, width);
-
+    condition = TADNet.len_clip + 1;
     byte_track::BYTETracker tracker(fps, fps * 2, 0.1, 0.2, 0.89);
 
     VideoWriter vwriter;
@@ -50,6 +62,10 @@ int main(int argc, char*  []) {
         {
             frame_index += 1;
             Mat video_mat;
+            std::unique_lock<std::mutex> lock(mtx);
+            my_variable.wait(lock, [] { return condition.load() > 0; });
+            condition -= 1;
+            lock.unlock();
             vcapture.read(video_mat);
             if (video_mat.empty())
             {
@@ -78,7 +94,7 @@ int main(int argc, char*  []) {
             std::get<0>(ports).try_put(input);
             return;
         }
-        maps.insert(std::pair<unsigned long, Mat>(input.frame_index, input.origin_mat));
+        maps.insert(std::pair<unsigned long, Mat>(input.frame_index, input.origin_mat.clone()));
         while (true)
         {
             for(unsigned long i = current_save_frame_index; i < current_save_frame_index + TADNet.len_clip; i ++)
@@ -89,10 +105,13 @@ int main(int argc, char*  []) {
                 }
             }
             vector<Mat> _video_mats(TADNet.len_clip);
-            tbb::parallel_for(0, TADNet.len_clip, [&](int i)
+            for (int i = 0; i < TADNet.len_clip; i++)
             {
-                _video_mats[i] = maps[i + current_save_frame_index];
-            });
+                _video_mats[i] = maps[i + current_save_frame_index].clone();
+            }
+            // std::stringstream ss;
+            // ss << "/home/linaro/6A/pictures/" << current_save_frame_index << ".jpg" << endl;
+            // imwrite(ss.str(), maps[current_save_frame_index]);
             maps.erase(current_save_frame_index);
             current_save_frame_index += 1;
             input.video_mats = _video_mats;
@@ -104,7 +123,7 @@ int main(int argc, char*  []) {
     pre_process_tad(g, 1, [&TADNet](CommonResultPose input) // CONCURRENCY_EDIT
     {
         if (input.frame_index == 0) return input;
-        auto vector_result = TADNet.pre_process(input.video_mats);
+        const auto vector_result = TADNet.pre_process(input.video_mats);
         input.video_mats.clear();
         input.float_vector = vector_result;
         return input;
@@ -115,7 +134,9 @@ int main(int argc, char*  []) {
     {
         if (input.frame_index == 0) return input;
         auto result = TADNet.detect(input);
-        cout << "detect size: " << result.object_poses.size() << endl;
+        std::lock_guard<std::mutex> lock(mtx);
+        condition += 1;
+        my_variable.notify_all();
         return result;
     });
 
@@ -162,7 +183,7 @@ int main(int argc, char*  []) {
     tbb::flow::function_node<CommonResultPose, CommonResultPose>
     track(g, 1, [&tracker](CommonResultPose input)
     {
-        auto track_result = tracker.update(input.track_objects);
+        const auto track_result = tracker.update(input.track_objects);
         input.track_vector = track_result;
         input.track_objects.clear();
         return input;
@@ -172,7 +193,6 @@ int main(int argc, char*  []) {
     pre_process_pose(g, 1, [&DWPOSENet](CommonResultPose input) // CONCURRENCY_EDIT
     {
         if (input.frame_index == 0) return input;
-        cout << "track size: " << input.track_vector.size() << endl;
         return DWPOSENet.pre_process(input);
     });
 
@@ -181,6 +201,7 @@ int main(int argc, char*  []) {
     detect_pose(g, 1, [&DWPOSENet](CommonResultPose input)  // CONCURRENCY_EDIT
     {
         if (input.frame_index == 0) return input;
+        cout << "detect_pose video: " << input.frame_index << endl;
         return DWPOSENet.detect(input);
     });
 
@@ -189,6 +210,7 @@ int main(int argc, char*  []) {
     post_process_pose(g, 1, [&DWPOSENet](CommonResultPose input)    // CONCURRENCY_EDIT
     {
         if (input.frame_index == 0) return input;
+        cout << "post_process_pose video: " << input.frame_index << endl;
         return DWPOSENet.post_process(input);
     });
 
@@ -196,6 +218,7 @@ int main(int argc, char*  []) {
     vis(g, 1, [&TADNet](CommonResultPose input) // CONCURRENCY_EDIT
     {
         if (input.frame_index == 0) return input;
+        cout << "vis video: " << input.frame_index << endl;
         return TADNet.vis(input);
     });
     tbb::flow::queue_node<CommonResultPose> queue_node(g);
@@ -203,18 +226,17 @@ int main(int argc, char*  []) {
 
 
     tbb::flow::function_node<CommonResultPose>
-    save(g, 1, [&vwriter](CommonResultPose input)
+    save(g, 1, [&vwriter,&TADNet](CommonResultPose input)
     {
         // cout << "save: " << input.frame_index << endl;
         static map<unsigned long, cv::Mat> hash_map;
-        static unsigned long current_save_frame_index = 1;
+        static unsigned long current_save_frame_index = TADNet.len_clip;
         if (input.frame_index == 0) return;
-        cv::Mat mat(input.processed_mat);
-        const unsigned long _frame_index = input.frame_index;
-        hash_map.insert(std::pair<unsigned long, cv::Mat>(_frame_index, mat));
+        hash_map.insert(std::pair<unsigned long, cv::Mat>(input.frame_index, input.processed_mat));
         while (hash_map.count(current_save_frame_index))
         {
             cout << "write video: " << current_save_frame_index << endl;
+            imwrite("/home/linaro/6A/pictures/test.jpg", hash_map[current_save_frame_index]);
             vwriter.write(hash_map[current_save_frame_index]);
             hash_map.erase(current_save_frame_index);
             current_save_frame_index += 1;

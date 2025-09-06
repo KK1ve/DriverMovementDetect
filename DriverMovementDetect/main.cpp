@@ -1,6 +1,6 @@
 #include "include/TemporalActionDetection.h"
 #include "include/PoseEstimation.h"
-#include "include/TemporalActionDetectionV2.h"
+
 #include "include/DWPOSE.h"
 #include <iostream>
 #include <map>

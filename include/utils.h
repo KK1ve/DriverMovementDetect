@@ -47,7 +47,6 @@ struct CommonResultPose
     std::vector<ObjectPose> object_poses;
     std::vector<float> float_vector;
     std::vector<cv::Mat> video_mats;
-    std::shared_ptr<BMNNTensor> bmnn_tensor;
     std::vector<std::shared_ptr<byte_track::STrack>> track_vector;
     std::vector<byte_track::Object> track_objects;
     // std::chrono::system_clock::time_point start_time; // TODO CAN BE DELETE

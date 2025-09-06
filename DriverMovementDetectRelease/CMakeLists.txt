@@ -28,4 +28,4 @@ aux_source_directory(include INCLUDE_LIST)
 add_executable (${PROJECT_NAME} ${SRC_LIST} ${INCLUDE_LIST} main.cpp)
 
 target_include_directories(${PROJECT_NAME} PRIVATE "${CURRENT_DIR}/include")
-target_link_libraries(${PROJECT_NAME} PRIVATE ByteTrack TBB::tbb ${FFMPEG_LIBS} ${OpenCV_LIBS} ${the_libbmlib.so} ${the_libbmrt.so} ${the_libbmcv.so})
+target_link_libraries(${PROJECT_NAME} PRIVATE ByteTrack TBB::tbb ${FFMPEG_LIBS} ${OpenCV_LIBS} ${the_libbmlib.so} ${the_libbmrt.so} ${the_libbmcv.so} Backward::Interface)

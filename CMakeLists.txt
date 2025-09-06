@@ -9,6 +9,7 @@ project ("6A")
 # 获取当前目录路径
 set(CURRENT_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 # 将当前目录路径定义为预处理器宏
+add_subdirectory("backward-cpp")
 add_definitions("-DCURRENT_DIR=\"${CURRENT_DIR}\"")
 add_definitions(-DFEATURE_VECTOR_DIM=512)
 add_subdirectory("DeepSort")

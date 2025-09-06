@@ -70,6 +70,8 @@ TAD::TAD(const string& modelpath,const int _origin_h, const int _origin_w, const
 Mat TAD::pre_process_mat(Mat& input)
 {
     auto resizeimg = letterbox(input, this->inpHeight, this->inpWidth);
+    // Mat resizeimg;
+    // resize(input, resizeimg, cv::Size(this->inpHeight, this->inpWidth));
     resizeimg.convertTo(resizeimg, CV_32FC3);
     return resizeimg;
 }
@@ -79,14 +81,17 @@ std::vector<float> TAD::pre_process(std::vector<Mat>& mats)
     vector<float> input_tensor;
     const int image_area = this->inpHeight * this->inpWidth;
     input_tensor.resize(batchSize * this->len_clip * 3 * image_area);
-    size_t single_chn_size = image_area * sizeof(float);
+    const size_t single_chn_size = image_area * sizeof(float);
     const int chn_area = this->len_clip * image_area;
     for(int i = 0; i < len_clip; i ++){
         vector<cv::Mat> bgrChannels(3);
-        split(mats[i], bgrChannels);
-        memcpy(input_tensor.data() + 0 * chn_area + i * image_area, (float *)bgrChannels[0].data, single_chn_size);
-        memcpy(input_tensor.data() + 1 * chn_area + i * image_area, (float *)bgrChannels[1].data, single_chn_size);
-        memcpy(input_tensor.data() + 2 * chn_area + i * image_area, (float *)bgrChannels[2].data, single_chn_size);
+        // std::stringstream ss;
+        // ss << "/home/linaro/6A/pictures/" << i << ".jpg" << endl;
+        // imwrite(ss.str(), pre_process_mat(mats[i]));
+        split(pre_process_mat(mats[i]), bgrChannels);
+        memcpy(input_tensor.data() + 0 * chn_area + i * image_area, bgrChannels[0].data, single_chn_size);
+        memcpy(input_tensor.data() + 1 * chn_area + i * image_area, bgrChannels[1].data, single_chn_size);
+        memcpy(input_tensor.data() + 2 * chn_area + i * image_area, bgrChannels[2].data, single_chn_size);
     }
     return input_tensor;
 
@@ -98,7 +103,7 @@ CommonResultPose TAD::detect(CommonResultPose& input)
     mBMNetwork->forward();
     const auto outputTensor = mBMNetwork->outputTensor(0);
     const auto pred = outputTensor->get_cpu_data();
-    int size = this->batchSize * outputTensor->get_shape()->dims[1] * outputTensor->get_shape()->dims[2];
+    const int size = this->batchSize * outputTensor->get_shape()->dims[1] * outputTensor->get_shape()->dims[2];
     vector<float> output(size);
     memcpy(output.data(), pred, size * sizeof(float));
     input.float_vector = output;

@@ -10,7 +10,7 @@
 #include <tbb/flow_graph.h>
 #include <map>
 
-std::atomic<unsigned int> condition{1};
+std::atomic<unsigned int> condition{2};
 std::mutex mtx;
 std::condition_variable my_variable;
 
@@ -28,7 +28,6 @@ int main(int argc, char* argv[]){
     int height = static_cast<int>(vcapture.get(cv::CAP_PROP_FRAME_HEIGHT));
     int width = static_cast<int>(vcapture.get(cv::CAP_PROP_FRAME_WIDTH));
     int fps = static_cast<int>(vcapture.get(cv::CAP_PROP_FPS));
-    condition = fps;
     int video_length = static_cast<int>(vcapture.get(cv::CAP_PROP_FRAME_COUNT));
 
     VideoWriter vwriter;
@@ -62,6 +61,7 @@ int main(int argc, char* argv[]){
             Mat video_mat;
             std::unique_lock<std::mutex> lock(mtx);
             my_variable.wait(lock, [] { return condition.load() > 0; });
+            lock.unlock();
             vcapture.read(video_mat);
             if (video_mat.empty())
             {
@@ -104,6 +104,7 @@ int main(int argc, char* argv[]){
         std::chrono::duration<float> _diff = std::chrono::system_clock::now() - input.start_time; // TODO CAN BE DELETE
         std::lock_guard<std::mutex> lock(mtx);
         condition += 1;
+        my_variable.notify_all();
         cout << "detect done: " << input.frame_index << " use time: " <<  _diff.count() << endl; // TODO CAN BE DELETE
         return result;
     });
